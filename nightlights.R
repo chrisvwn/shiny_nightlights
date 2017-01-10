@@ -1,0 +1,590 @@
+require(lubridate)
+require(rworldmap)
+
+require(sp)
+require(raster)
+
+require(rgdal)
+require(rgeos)
+
+require(readr)
+require(dplyr)
+
+
+ntLtsBaseUrl <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
+
+#6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
+nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W","75N060W","75N060E","00N180W","00N060W","00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)))
+
+#convert nlTiles min/max columns to numeric
+for (cIdx in grep("min|max", names(nlTiles))) nlTiles[,cIdx] <- as.numeric(as.character(nlTiles[,cIdx]))
+
+wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+
+tSpPolysDFs <- NULL
+
+for (i in 1:nrow(nlTiles))
+{
+  t <- nlTiles[i,]
+  
+  tMat <- as.matrix(cbind(rbind(t$minx, t$maxx, t$maxx, t$minx), rbind(t$maxy, t$maxy, t$miny, t$miny)))
+  
+  tPoly <- list(Polygon(tMat))
+  
+  
+  tPolys <- Polygons(tPoly, ID = "nltiles")
+  
+  tSpPolys <- SpatialPolygons(Srl = list(tPolys))
+  
+  projection(tSpPolys) <- CRS(wgs84)
+  
+  tSpPolysDF <- as(tSpPolys, "SpatialPolygonsDataFrame")
+  
+  if (is.null(tSpPolysDFs))
+    tSpPolysDFs <- tSpPolysDF
+  else
+    tSpPolysDFs <- rbind(tSpPolysDFs, tSpPolysDF)
+}
+
+for (i in 1:nrow(tSpPolysDFs))
+{
+  a[i] <- gIntersects(tSpPolysDFs[i,], ke_shp_ward)
+}
+
+#Set raster directory path
+raster_dir_ols <- "/btrfs/nightlights/"
+
+#Set directory path
+raster_dir_viirs <- "/btrfs/nightlights/"
+
+polygon_dir <- "."
+
+getNtLts <- function(inputYear)
+{
+  #dmsp/ols data from 1992-2013
+  #snpp/viirs data from 2014 - present
+  
+  if (inputYear < 1992 || inputYear > year(now()))
+    return ("Invalid year")
+  
+  if (inputYear < 2014)
+    print("Downloading from DMSP/OLS")
+  else
+    print("Downloading from SNPP/VIIRS")
+}
+
+getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
+{
+  #Function to return the url of the file to download given the year, month, and nlTile index
+  #nlTile is a global list
+  
+  #the page that lists all available nightlight files
+  ntLtsPageHtml <- "https://www.ngdc.noaa.gov/eog/viirs/download_mon_mos_iframe.html"
+  
+  #the local name of the file once downloaded
+  ntLtsPageLocalName <- "ntltspage.html"
+
+  #if the file does not exist or is older than a week download it afresh
+  if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))))
+  {
+    download.file(ntLtsPageHtml, ntLtsPageLocalName, method = "wget")
+  }
+  #else
+  #  print(paste0(ntLtsPageHtml, " already downloaded"))
+  
+  #read in the html page
+  ntLtsPage <- readr::read_lines(ntLtsPageLocalName)
+  
+  #search for a line containing the patterns that make the files unique i.e.
+  #1. SVDNB_npp_20121001 - year+month+01
+  #2. vcmcfg - for file with intensity as opposed to cloud-free counts (vcmslcfg)
+  #sample url: https://data.ngdc.noaa.gov/instruments/remote-sensing/passive/spectrometers-radiometers/imaging/viirs/dnb_composites/v10//201210/vcmcfg/SVDNB_npp_20121001-20121031_75N180W_vcmcfg_v10_c201602051401.tgz
+  
+  #create the pattern
+  ntLtsPageRgxp <- paste0("SVDNB_npp_", inYear, inMonth, "01.*", nlTiles[inTile], ".*vcmcfg")
+  
+  #search for the pattern in the page
+  ntLtsPageHtml <- ntLtsPage[grep(pattern = ntLtsPageRgxp, x=ntLtsPage)]
+  
+  #split the output on quotes since this url is of the form ...<a href="URL"download> ...
+  #the url is in the second position
+  ntLtsPageUrl <- unlist(strsplit(ntLtsPageHtml, '"'))[2]
+
+  return (ntLtsPageUrl)
+}
+
+getNtLtsViirs <- function(inputYear, inputMonth, tileNum)
+{
+  ntLtsFileUrl <- getNtLtsUrlViirs(inputYear, inputYear, tileNum)
+
+  ntLtsFileLocalName <- paste0("viirs_", inputYear, "_", inputMonth, ".tgz")
+    
+  download.file(ntLtsFileUrl, ntLtsFileLocalName)
+  
+  
+}
+
+masq_viirs <- function(shp, rast, i)
+{
+  #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
+  #slightly modified to use faster masking method by converting the raster to vector
+  #Extract one polygon based on index value i
+  polygon <- shp[i,] #extract one polygon
+  extent <- extent(polygon) #extract the polygon extent 
+  
+  #Raster extract
+  outer <- crop(rast, extent) #extract raster by polygon extent
+  #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
+  inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
+  
+  #Convert cropped raster into a vector
+  #Specify coordinates
+  coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
+                        seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
+  #Convert raster into vector
+  data <- as.vector(inner)
+  
+  ##THIS SECTION NEEDS WORK. confirm error and NA values and handling of the same
+  
+  #data <- data[!is.na(data)] #keep non-NA values only ... shall this affect mask values?
+  #data[is.na(data)] <- 0
+  data[data < 0] <- 0 #any negative values are either recording problems or error values as per: 
+  
+  return(data) 
+}
+
+getNtLtsUrlOls <- function(inYear, inMonth, inTile)
+{
+  
+}
+
+getNtLtsOls <- function(inputYear)
+{
+  download.file("")
+}
+
+masq_ols <- function(shp,rast,i)
+{
+  #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
+  #Extract one polygon based on index value i
+  polygon <- shp[i,] #extract one polygon
+  extent <- extent(polygon) #extract the polygon extent 
+  
+  #Raster extract
+  outer <- crop(rast, extent) #extract raster by polygon extent
+  #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
+  inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
+  
+  #Convert cropped raster into a vector
+  #Specify coordinates
+  coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
+                        seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
+  #Convert raster into vector
+  data <- as.vector(inner)
+  
+  ##THIS SECTION NEEDS WORK. confirm error and NA values and handling of the same
+  #keep non-NA values only?
+  #data <- data[!is.na(data)]
+  
+  #in DMSP-OLS 255 == NA
+  data[which(data == 255)] <- NA
+  
+  #non-negative values are errors replace with 0?
+  data[data < 0] <- 0
+  
+  return(data)
+}
+
+processNLCountryOls <- function(cntryCode, nlYear, nlMonth)
+{
+  setwd(raster_dir)
+  
+  #read in the kenya shapefile containing ward administrative boundaries
+  ke_shp_ward <- readOGR("/btrfs/nightlights/KEN_adm_shp","KEN_adm3")
+  
+  #get the extent of the shapefile
+  ke_extent <- extent(ke_shp_ward)
+  
+  ##Specify WGS84 as the projection of the raster file
+  wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+  
+  projection(ke_shp_ward) <- CRS(wgs84)
+  
+  ##Obtain a list of TIF files, load in the first file in list
+  #get a list of the tgzs available
+  tar_fls <- list.files(raster_dir, pattern = "^F.*.tar", ignore.case = T)
+  
+  tar_fls <- tar_fls[1]
+  
+  #pick the unique year month from the available files
+  all_years_months <- unique(substr(tar_fls,1,7))
+  
+  #for missing year_months figure out how to process
+  #1. either download immediately (can we do this asynchronously?)
+  #2. ignore and download at the point of need
+  
+  if (file.exists("nightlight_means_dmspols.csv"))
+  {
+    message("Detected existing nightlight data. Reading ...")
+    extract <- read.csv("nightlight_means_dmspols.csv",header = TRUE,sep = ",")
+    
+    existing_data_cols <- names(extract)
+    
+    existing_year_months <- existing_data_cols[grep("^F[:alphanum:]*", existing_data_cols)]
+    
+    #existing_year_months <- str_replace(existing_year_months, "F", "")
+    
+    #find the positions of the existing yearmonths in the filelist
+    existing_pos <- sapply(existing_year_months, FUN = function(x) grep(x, all_years_months))
+    
+    #remove existing yearmonths from the filelist. the remainder will be processed
+    all_years_months <- all_years_months[-existing_pos]
+    
+  } else #if the file is not found, initialize the extract dataframe
+  {
+    extract <- ke_shp_ward@data[,c("ID_1","NAME_1","ID_2","NAME_2","ID_3","NAME_3")]
+    
+    areas <- area(ke_shp_ward)
+    
+    extract <- cbind(extract, areas)
+    
+    names(extract) <- c("county_id", "county_name", "constituency_id", "constituency_name", "ward_id", "ward_name", "area")
+  }
+  
+  if (length(all_years_months) > 0)
+  {
+    #get the nightlight tgzs listed in the tars
+    for (tar_fl in tar_fls)
+    {
+      sat_year <- substr(tar_fl,1,7)
+      
+      if (length(intersect(sat_year, all_years_months)) == 0)
+      {
+        message(sat_year, " exists. Skipping to next file ...")
+        next()
+      }
+      
+      message("Extracting ", tar_fl, " ", date())
+      
+      message("Getting list of files in ", tar_fl, " ", date())
+      #get a list of files in the tar archive
+      tar_file_list <- untar(tar_fl, list = TRUE)
+      
+      #get the nightlight data filename
+      #the nightlight data filename has the format "web.avg_vis.tif.gz"
+      #    tgz_file <- tar_file_list[grep(".*web\\.avg_vis\\.tif\\.gz$",tar_file_list, ignore.case = T)]
+      tgz_file <- tar_file_list[grep(".*stable_lights\\.avg_vis\\.tif\\.gz$",tar_file_list, ignore.case = T)]
+      
+      #extract the nightlight data file
+      untar(tar_fl, tgz_file)
+      
+      #the tif has the same name as the compressed file without the .gz
+      tif_file <- str_replace(tgz_file, ".gz", "")
+      
+      message("Decompressing ", tgz_file, " ", date())
+      
+      gunzip(tgz_file)
+      
+      #no need to delete the gz since gunzip deletes the compressed version
+      
+      message("Reading in the raster " , date())
+      rast_global <- raster(tif_file)
+      
+      projection(rast_global) <- CRS(wgs84)
+      
+      message("Cropping the raster ", date())
+      rast_ke <- crop(rast_global, ke_shp_ward)
+      
+      message("Releasing the raster variables")
+      rm(rast_global)
+      
+      message("Deleting the raster files ", date())
+      
+      unlink(tif_file)
+      
+      gc()
+      
+      message("Masking the merged raster ", date())
+      #rast_ke <- mask(rast_ke, ke_shp_ward)
+      rast_ke <- rasterize(ke_shp_ward, rast_ke, mask=TRUE) #crops to polygon edge & converts to raster
+      
+      message("Writing the merged raster to disk ", date())
+      writeRaster(x = rast_ke, filename = paste0("outputrasters/",sat_year,".tif"), overwrite=TRUE)
+      
+      registerDoParallel(cores=2)
+      
+      message("Begin extracting the data from the merged raster ", date())
+      sum_avg_rad <- foreach(i=1:nrow(ke_shp_ward@data), .combine=rbind) %dopar% {
+        
+        #message("Extracting data from polygon " , i, " ", date())
+        dat <<- masq(ke_shp_ward,rast_ke,i)
+        
+        #message("Calculating the mean of polygon ", i, " ", date())
+        
+        #calculate and return the mean of all the pixels
+        data.frame(mean = sum(dat, na.rm=TRUE))
+      }
+      
+      #merge the calculated means for the polygon as a new column
+      extract <- cbind(extract, sum_avg_rad)
+      
+      #name the new column with the yearmonth of the data
+      names(extract)[ncol(extract)] <- paste0(sat_year)
+      message("DONE processing ", sat_year, " ", date())
+    }
+    
+    message("COMPLETE. Writing data to disk")
+    write.table(extract, "nightlight_means_dmspols.csv", row.names= F, sep = ",")
+    
+  } else
+  {
+    message("No DMSP-OLS nightlights to process")
+  }
+}
+
+processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
+{
+  #change directory to the path
+  setwd(raster_dir)
+  
+  ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
+  #ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
+  
+  ke_extent <- extent(ke_shp_ward)
+  
+  ##Specify WGS84 as the projection of the raster file
+  wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+  
+  projection(ke_shp_ward) <- CRS(wgs84)
+  
+  ##Obtain a list of TIF files, load in the first file in list
+  #get a list of the tgzs available
+  tgzs <- list.files(raster_dir, pattern = "^svdnb.*.*vcmcfg.*.tgz$", ignore.case = T)
+  
+  #pick the unique year month from the available files
+  all_years_months <- unique(substr(tgzs,11,16))
+  
+  if (file.exists("nightlight_means.csv"))
+  {
+    extract <- read.csv("nightlight_means.csv",header = TRUE,sep = ",")
+    
+    existing_data_cols <- names(extract)
+    
+    existing_year_months <- existing_data_cols[grep("^NL_[:alphanum:]*", existing_data_cols)]
+    
+    existing_year_months <- stringr::str_replace(existing_year_months, "NL_", "")
+    
+    existing_pos <- sapply(existing_year_months, FUN = function(x) grep(x, all_years_months))
+    
+    all_years_months <- all_years_months[-existing_pos]
+  } else
+  {
+    extract <- ke_shp_ward@data[,c("ID_1","NAME_1","ID_2","NAME_2","ID_3","NAME_3")]
+    
+    names(extract) <- c("county_id", "county_name", "constituency_id", "constituency_name", "ward_id", "ward_name")
+  }
+  
+  if (length(all_years_months)>0)
+  {
+    for (yearmonth in all_years_months)
+    {
+      message("Begin processing ", yearmonth, " ", date())
+      
+      #get the tgzs that were collected in the period
+      year_month_tiles_idx <- grep(paste0("SVDNB_npp_", yearmonth), tgzs)
+      
+      year_month_tiles_tgz <- tgzs[year_month_tiles_idx]
+      
+      tif_files <- vector()
+      
+      for (tgz_fl in year_month_tiles_tgz)
+      {
+        message("Extracting ", tgz_fl, " ", date())
+        
+        message("Getting list of files in ", tgz_fl, " ", date())
+        tgz_file_list <- untar(tgz_fl, list = TRUE)
+        #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
+        
+        tgz_avg_rad_filename <- tgz_file_list[grep("svdnb.*.avg_rade9.tif$",tgz_file_list, ignore.case = T)]
+        tif_files <- c(tif_files, tgz_avg_rad_filename)
+        
+        message("Decompressing ", tgz_avg_rad_filename, " ", date())
+        untar(tgz_fl, files = tgz_avg_rad_filename)
+      }
+      
+      #tifs = list.files(raster_dir, pattern = "^svdnb.*.avg_rade9.tif$", ignore.case = T)
+      
+      message("Reading in the rasters " , date())
+      #rast_upper <- raster(paste(raster_dir,"/",tifs[1],sep=""))
+      rast_upper_filename <- tif_files[grep(pattern = "00N060W", x = tif_files)]
+      rast_upper <- raster(rast_upper_filename)
+      
+      #rast_lower <- raster(paste(raster_dir,"/",tifs[2],sep=""))  
+      rast_lower_filename <- tif_files[grep(pattern = "75N060W",x = tif_files)]
+      rast_lower <- raster(rast_lower_filename)
+      
+      projection(rast_upper) <- CRS(wgs84)
+      projection(rast_lower) <- CRS(wgs84)
+      
+      message("Cropping the rasters ", date())
+      ke_rast_upper <- crop(rast_upper, ke_shp_ward)
+      ke_rast_lower <- crop(rast_lower, ke_shp_ward)
+      
+      message("Releasing the raster variables")
+      rm(rast_lower, rast_upper)
+      
+      message("Deleting the raster files ", date())
+      unlink(tif_files)
+      
+      tif_files <- vector()
+      
+      gc()
+      
+      message("Merging the cropped rasters ", date())
+      ke_rast_combined <- merge(ke_rast_upper, ke_rast_lower)
+      
+      message("Masking the merged raster ", date())
+      #ke_rast_combined <- mask(ke_rast_combined, ke_shp_ward)
+      ke_rast_combined <- rasterize(ke_shp_ward, ke_rast_combined, mask=TRUE) #crops to polygon edge & converts to raster
+      
+      message("Deleting the two component rasters ", date())
+      rm(ke_rast_lower, ke_rast_upper)
+      
+      message("Writing the merged raster to disk ", date())
+      writeRaster(x = ke_rast_combined, filename = paste0("outputrasters/",yearmonth,".tif"), overwrite=TRUE)
+      
+      registerDoParallel(cores=2)
+      
+      message("Begin extracting the data from the merged raster ", date())
+      sum_avg_rad <- foreach(i=1:nrow(ke_shp_ward@data), .combine=rbind) %dopar% {
+        
+        message("Extracting data from polygon " , i, " ", date())
+        dat <- masq(ke_shp_ward,ke_rast_combined,i)
+        
+        message("Calculating the mean of polygon ", i, " ", date())
+        
+        #calculate and return the mean of all the pixels
+        data.frame(mean = mean(dat, na.rm=TRUE))
+      }
+      
+      #merge the calculated means for the polygon as a new column
+      extract <- cbind(extract, sum_avg_rad)
+      
+      #name the new column with the yearmonth of the data
+      names(extract)[ncol(extract)] <- paste0("NL_", yearmonth)
+      message("DONE processing ", yearmonth, " ", date())
+    }
+    
+    message("COMPLETE. Writing data to disk")
+    write.table(extract, "nightlight_means_viirs.csv", row.names= F, sep = ",")
+  }else
+  {
+    message("No nightlights to process")
+  }
+}
+
+processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
+{
+  
+  #nlYearMonths is a character vector with each entry containing an entry of the form YYYYMM (%Y%m)
+  #e.g. 201401 representing the month for which nightlights should be calculated
+  #use provided list
+  #if none given default to all year_months
+  #TODO:
+  #1. if years only given, infer months
+  #2.verification & deduplication
+  
+  if (length(nlYearMonths) == 0)
+  {
+    nlYears <- paste(1992:year(now()), c(paste("0",1:9, sep= ""),10:12), sep="")
+  }
+
+  #use supplied list of ctryCodes in ISO3 format else use default of all
+  #TODO: 
+  #1.accept other formats and convert as necessary
+  #2.verification & deduplication
+  if (length(ctryCodes) == 0)
+  {
+    #get list of countries required (all/multiple)
+    ctryCodes <- countryRegions$ISO3
+  }
+  
+  tileList <- list()
+  
+  ctryPolygons <- data.frame()
+  
+  #determine extents of countries
+  for (ctry in unique(ctryCodes))
+  {
+    ctryExtents <- bbox()
+
+    #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
+    polyFname <- paste0(polygonDir,"/",ctry,"_adm_shp.zip")
+    
+    if (!file.exists(polyFname))
+    {
+      if (!download.file("poly", polydir))
+        throw ("Could not download polygon")
+    }
+        
+    ctryPoly <- readOGR(polyFname)
+    
+    extents <- bbox(ctryPoly)
+    
+    tileList <- list()
+    
+    for (nlTile in nlTiles)
+    {
+      if (intersect(nlTile$id, tileList) > 0)
+        break;
+      
+      nlTileExtents <- Polygon()
+      if (nlTile$maxx)
+        
+    }
+    
+    ctryPolygons <- rbind(ctryPolygons, as.dataframe("code"= ctry, ))
+  }
+  
+  #determine tiles to download
+  
+  #for all years
+  for all nlYearMonths
+  {
+    for nightlight type in viirs/ols
+    {
+      if nightlight type == viirs
+      {
+        determine extents of countries
+        determine tiles to download
+      }
+      else if nightlight type == ols
+      {
+        #determine tiles to download
+      }
+
+      #for each required tile
+      #if tile does not exist
+      #download required year_month tiles
+
+      #for all required countries
+      #{
+        #if data file already exists
+        #next()
+  
+        #if viirs
+          #determine tiles that contain country boundaries
+  
+        #process for lowest admin level and include names of higher levels to allow aggregation to higher levels
+        #find, download, load shapefile
+  
+        #extract admin level names
+        #get lowest level
+        #sum+avg nightlights at the level
+        #insert into df
+        #save file with filename ctrycode_ols/viirs
+      }
+    }
+  }
+}
+
