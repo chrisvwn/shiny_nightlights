@@ -1,17 +1,17 @@
-require(lubridate)
-require(rworldmap)
-
-require(sp)
-require(raster)
-
-require(rgdal)
-require(rgeos)
-
 require(readr)
 require(dplyr)
 
+require(lubridate)
 
-ntLtsBaseUrl <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
+require(rgdal)
+require(raster)
+
+require(sp)
+require(rgeos)
+require(rworldmap)
+require(cleangeo)
+
+ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
 #6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
 #creates columns as strings. createSpPolysDF converts relevant columns to numeric
@@ -21,7 +21,22 @@ nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W","75N060W","75
 #can we use only one or does it depend on the shapefile loaded?
 wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 
-createSpPolysDF <- function()
+map <- rworldmap::getMap()
+map <- clgeo_Clean(map)
+
+#Set raster directory path
+dirRasterOLS <- "./tiles"
+
+#Set directory path
+dirRasterVIIRS <- "./tiles"
+
+dirPolygon <- "./polygons"
+
+dirNlData <- "./data"
+
+shpTopLyrName <- "adm0"
+
+createNlTilesSpPolysDF <- function()
 {
   #convert nlTiles min/max columns to numeric
   for (cIdx in grep("id|min|max", names(nlTiles))) nlTiles[,cIdx] <- as.numeric(as.character(nlTiles[, cIdx]))
@@ -60,14 +75,128 @@ createSpPolysDF <- function()
     else
       tSpPolysDFs <- rbind(tSpPolysDFs, tSpPolysDF)
   }
+  return (tSpPolysDFs)
+}
+
+plotCtryWithTiles <- function(idx)
+{
+  map <- rworldmap::getMap()
+  map <- clgeo_Clean(map)
+ 
+  if (is.numeric(idx))
+  {
+    if(idx < 0 || idx > length(map@polygons))
+    {
+      return("Index out of range")
+    }
+  }
+  else
+  {
+    ctryISO3 <- rwmGetISO3(idx)
+    
+    #print(ctryISO3)
+
+    if (is.na(ctryISO3) || ctryISO3 == "")
+      return("Unknown country")
+    
+    idx <- which(as.character(map@data$ISO3) == ctryISO3)
+  }
+
+  #print (idx)
+   
+  ctryPolys <- map@polygons[[idx]]
+  
+  #create a SpatialPolygons object with a list of 1 list of Polygons
+  ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
+  
+  crs(ctrySpPolys) <- CRS(wgs84)
+  
+  ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
+  
+  plot(tSpPolysDFs)
+  plot(ctrySpPolysDF, add=TRUE)
+  
+  #ggplot(tSpPolysDFs, aes(x=long,y=lat))+geom_polygon(col="black", fill="white", alpha=0.5)#+geom_polygon(data=ctrySpPolysDF, alpha=0.5)
+  #ggplot(ctrySpPolysDF, aes(x=long,y=lat, group=group))+geom_polygon(col="black", fill="white",alpha=0.5)
+  
+  #a <- spplot(tSpPolysDFs, main=map@polygons[[idx]]@ID)
+  #b <- spplot(ctrySpPolysDF)
+  
+  #a+as.layer(b)
+  
+}
+
+mapAllCtryPolyToTiles <- function()
+{
+  #get list of all country codes
+  ctryCodes <- getAllNlCtryCodes()
+  
+  map <- rworldmap::getMap()
+  map <- clgeo_Clean(map)
+  
+  ctryCodeTiles <- NULL
+  
+  for (i in 1:length(ctryCodes))
+  {
+    ctryPolys <- map@polygons[[i]]
+    
+    #create a SpatialPolygons object with a list of 1 list of Polygons
+    ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
+    
+    crs(ctrySpPolys) <- CRS(wgs84)
+    
+    ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
+    
+    ctryCodeTiles <- rbind(ctryCodeTiles, list(tilesPolygonIntersect(ctrySpPolys)))
+  }
+
+  ctryCodeTiles <- as.data.frame(cbind(code = as.character(map@data$ISO3), tiles = ctryCodeTiles))
+  
+  ctryCodeTiles$code <- as.character(ctryCodeTiles$code)
+  
+  #plot(tSpPolysDFs, add=TRUE)
+  #plot(ctrySpPolysDF, add=TRUE)
+  #
+    
+  return(ctryCodeTiles)
+}
+
+getTilesCtryIntersect <- function(ctryCode)
+{
+  ctryISO3 <- rwmGetISO3(ctryCode)
+  
+  #print(ctryISO3)
+  
+  if (is.na(ctryISO3) || ctryISO3 == "")
+    return("Unknown country")
+  
+  idx <- which(map@data$ISO3 == ctryISO3)
+  
+  ctryCodeTiles <- NULL
+  
+  ctryPolys <- map@polygons[[idx]]
+  
+  #create a SpatialPolygons object with a list of 1 list of Polygons
+  ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
+  
+  crs(ctrySpPolys) <- CRS(wgs84)
+  
+  ctrySpPolysDF <<- as(ctrySpPolys, "SpatialPolygonsDataFrame")
+  
+  ctryCodeTiles <- tilesPolygonIntersect(ctrySpPolys)
+  
+  #plot(tSpPolysDFs, add=TRUE)
+  #plot(ctrySpPolysDF, add=TRUE)
+  
+  return (ctryCodeTiles)
 }
 
 tilesPolygonIntersect <- function(shp_polygon)
 {
-  #given a polygon this function returns a list of the names of the tiles
+  #given a polygon this function returns a list of the names of the viirs tiles
   #that it intersects with
   #Input: a Spatial Polygon e.g. from a loaded shapefile
-  #Output: a list of tile names as given in the nlTiles object
+  #Output: a character vector of tile names as given in the nlTiles dataframe
   
   #init list to hold tile indices
   tileIdx <- NULL
@@ -83,13 +212,6 @@ tilesPolygonIntersect <- function(shp_polygon)
   return (nlTiles[tileIdx, "name"])
 }
 
-#Set raster directory path
-raster_dir_ols <- "/btrfs/nightlights/"
-
-#Set directory path
-raster_dir_viirs <- "/btrfs/nightlights/"
-
-polygon_dir <- "."
 
 getNtLts <- function(inputYear)
 {
@@ -237,7 +359,7 @@ masq_ols <- function(shp,rast,i)
 
 processNLCountryOls <- function(cntryCode, nlYear, nlMonth)
 {
-  setwd(raster_dir)
+  setwd(dirRasterOLS)
   
   #read in the kenya shapefile containing ward administrative boundaries
   ke_shp_ward <- readOGR("/btrfs/nightlights/KEN_adm_shp","KEN_adm3")
@@ -252,7 +374,7 @@ processNLCountryOls <- function(cntryCode, nlYear, nlMonth)
   
   ##Obtain a list of TIF files, load in the first file in list
   #get a list of the tgzs available
-  tar_fls <- list.files(raster_dir, pattern = "^F.*.tar", ignore.case = T)
+  tar_fls <- list.files(dirRasterOLS, pattern = "^F.*.tar", ignore.case = T)
   
   tar_fls <- tar_fls[1]
   
@@ -384,8 +506,9 @@ processNLCountryOls <- function(cntryCode, nlYear, nlMonth)
 
 processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
 {
+  #assumes tiles hve been downloaded
   #change directory to the path
-  setwd(raster_dir)
+  setwd(dirRasterVIIRS)
   
   ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
   #ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
@@ -399,7 +522,7 @@ processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
   
   ##Obtain a list of TIF files, load in the first file in list
   #get a list of the tgzs available
-  tgzs <- list.files(raster_dir, pattern = "^svdnb.*.*vcmcfg.*.tgz$", ignore.case = T)
+  tgzs <- list.files(dirRasterVIIRS, pattern = "^svdnb.*.*vcmcfg.*.tgz$", ignore.case = T)
   
   #pick the unique year month from the available files
   all_years_months <- unique(substr(tgzs,11,16))
@@ -452,14 +575,14 @@ processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
         untar(tgz_fl, files = tgz_avg_rad_filename)
       }
       
-      #tifs = list.files(raster_dir, pattern = "^svdnb.*.avg_rade9.tif$", ignore.case = T)
+      #tifs = list.files(dirRasterVIIRS, pattern = "^svdnb.*.avg_rade9.tif$", ignore.case = T)
       
       message("Reading in the rasters " , date())
-      #rast_upper <- raster(paste(raster_dir,"/",tifs[1],sep=""))
+      #rast_upper <- raster(paste(dirRasterVIIRS,"/",tifs[1],sep=""))
       rast_upper_filename <- tif_files[grep(pattern = "00N060W", x = tif_files)]
       rast_upper <- raster(rast_upper_filename)
       
-      #rast_lower <- raster(paste(raster_dir,"/",tifs[2],sep=""))  
+      #rast_lower <- raster(paste(dirRasterVIIRS,"/",tifs[2],sep=""))  
       rast_lower_filename <- tif_files[grep(pattern = "75N060W",x = tif_files)]
       rast_lower <- raster(rast_lower_filename)
       
@@ -523,7 +646,7 @@ processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
   }
 }
 
-getCtryPolyUrl(ctryCode)
+getCtryPolyUrl <- function(ctryCode)
 {
   #Sample url: http://biogeo.ucdavis.edu/data/gadm2.8/shp/AFG_adm_shp.zip
   basePolyUrl <- "http://biogeo.ucdavis.edu/data/gadm2.8/shp/"
@@ -531,12 +654,42 @@ getCtryPolyUrl(ctryCode)
   return (paste0(basePolyUrl, ctryCode, "_adm_shp.zip"))
 }
 
+polyFnamePathExists <- function(ctryCode)
+{
+  #for polygons look for shapefile dir
+  return(dir.exists(getPolyFnamePath(ctryCode)))
+}
+
+polyFnameZipExists <- function(ctryCode)
+{
+  return(file.exists(getPolyFnameZip(ctryCode)))
+}
+
+getShpLyrName <- function(ctryCode, lyrNum)
+{
+  return(paste0(ctryCode, "_adm", lyrNum))
+}
+
 dnldCtryPoly <- function(ctryCode)
 {
   fullPolyUrl <- getCtryPolyUrl(ctryCode)
   
-  if (!file.exists(polyFname))
-    return(download.file(url = getCtryPolyUrl(ctryCode), destfile = paste0(ctryCode, "_adm_shp.zip"), method = "wget", mode = "wb", extra = "-c") == 0)
+  #if the path doesn't exist
+  if (!polyFnamePathExists(ctryCode))
+  {
+    if (!polyFnameZipExists(ctryCode))
+    {
+      if(download.file(url = getCtryPolyUrl(ctryCode), destfile = getPolyFnameZip(ctryCode), method = "wget", mode = "wb", extra = "-c") == 0)
+      {
+        result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath())
+      }
+    }else
+    {
+      result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
+    }
+  }
+  
+  return (!is.null(result))
 }
 
 getAllNlYears <- function()
@@ -546,10 +699,17 @@ getAllNlYears <- function()
 
 getAllNlCtryCodes <- function()
 {
-  return (countryRegions$ISO3)
+  #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
+  #select ctryCodes from the map data itself
+  map <- rworldmap::getMap()
+
+  #some polygons have problems. use cleangeo package to rectify
+  map <- clgeo_Clean(map)
+  
+  return (as.character(map@data$ISO3))
 }
 
-getNlType(nlYear)
+getNlType <- function(nlYear)
 {
   if (nlYear < 1992 || nlYear > year(now()))
     return(NA)
@@ -560,11 +720,28 @@ getNlType(nlYear)
     return("VIIRS")
 }
 
-getPolygonFname(ctryCode)
+getPolyFname <- function(ctryCode)
 {
   #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
-  polyFname <- paste0(polygonDir,"/",ctryCode,"_adm_shp.zip")
+  polyFname <- paste0(ctryCode, "_adm_shp")
+  
+  return (polyFname)
+}
 
+getPolyFnamePath <- function(ctryCode)
+{
+  #check for the shapefile directory created with 
+  #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
+  polyFnamePath <- paste0(dirPolygon, "/", getPolyFname(ctryCode))
+
+  return (polyFnamePath)
+}
+
+getPolyFnameZip <- function(ctryCode)
+{
+  #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
+  polyFname <- paste0(getPolyFnamePath(ctryCode),".zip")
+  
   return (polyFname)
 }
 
@@ -589,30 +766,41 @@ processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
   #2.verification & deduplication
   if (length(ctryCodes) == 0)
   {
-    #get list of countries required (all/multiple)
+    #get list of all country codes
     ctryCodes <- getAllNlCtryCodes()
   }
   
-  tileList <- NULL
+  ##First step: Determine which tiles are required for processing. This is determined by the 
+  #list of ctryCodes. Since theoretically we need the polygons of all countries to determine which
+  #tiles to download we take the opportunity to download all required shapefiles
+  #Practically, we can stop as soon as all 6 tiles are flagged for download.
   
-  #determine extents of countries
+  ##If any tiles cannot be found/downloaded then abort and try for next country
+  #we probably need to flag failed downloads so we don't try to process them and report back to user
+  
+#   #init the list of tiles to be downloaded
+#   tileList <- NULL
+  
+  #For each country
   for (ctryCode in unique(ctryCodes))
   {
-    if (!file.exists(getPolygonFname(ctryCode)))
+    print (paste0("Checking polygon for ", ctryCode))
+    
+    #Download the country polygon shapefile if it does not exist
+    if (!file.exists(getPolyFnamePath(ctryCode)))
     {
       if (!dnldCtryPoly(ctryCode))
       {
-        print (paste0("Could not download polygon for country ", ctry))
+        print (paste0("Could not download polygon for ", ctryCode, ". Aborting ..."))
        
         next()
+      }else
+      {
+        print (paste0("Downloaded polygon for ", ctryCode))
       }
     }
-        
-    ctryPoly <- readOGR(polyFname)
-    
-    tls <- tilesPolygonIntersect(ctryPoly)
 
-    tileList <- c(tileList, setdiff(tls, tileList))
+    tileList <- tilesPolygonIntersect(ctryCode)
   }
   
   #determine tiles to download
@@ -636,151 +824,53 @@ processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-
-        #process for lowest admin level and include names of higher levels to allow aggregation to higher levels
-        #find, download, load shapefile
-        ctryShpLowestAdmLevel <- readOGR("KEN_adm_shp","KEN_adm3")
-        
-        ke_extent <- extent(ke_shp_ward)        
-        #extract admin level names
-        #get lowest level
-        #sum+avg nightlights at the level
-        #insert into df
-        #save file with filename ctrycode_ols/viirs
-        
-        nlDataFname <- paste0(ctryCode, "_nightlights.csv")
-        
-        if (file.exists("nightlight_means.csv"))
-        {
-          extract <- read.csv("nightlight_means.csv",header = TRUE,sep = ",")
-          
-          existing_data_cols <- names(extract)
-          
-          existing_year_months <- existing_data_cols[grep("^NL_[:alphanum:]*", existing_data_cols)]
-          
-          existing_year_months <- stringr::str_replace(existing_year_months, "NL_", "")
-          
-          existing_pos <- sapply(existing_year_months, FUN = function(x) grep(x, all_years_months))
-          
-          all_years_months <- all_years_months[-existing_pos]
-        } else
-        {
-          extract <- ke_shp_ward@data[,c("ID_1","NAME_1","ID_2","NAME_2","ID_3","NAME_3")]
-          
-          names(extract) <- c("county_id", "county_name", "constituency_id", "constituency_name", "ward_id", "ward_name")
-        }
-        
-        if (length(all_years_months)>0)
-        {
-          for (yearmonth in all_years_months)
-          {
-            message("Begin processing ", yearmonth, " ", date())
-            
-            #get the tgzs that were collected in the period
-            year_month_tiles_idx <- grep(paste0("SVDNB_npp_", yearmonth), tgzs)
-            
-            year_month_tiles_tgz <- tgzs[year_month_tiles_idx]
-            
-            tif_files <- vector()
-            
-            for (tgz_fl in year_month_tiles_tgz)
-            {
-              message("Extracting ", tgz_fl, " ", date())
-              
-              message("Getting list of files in ", tgz_fl, " ", date())
-              tgz_file_list <- untar(tgz_fl, list = TRUE)
-              #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
-              
-              tgz_avg_rad_filename <- tgz_file_list[grep("svdnb.*.avg_rade9.tif$",tgz_file_list, ignore.case = T)]
-              tif_files <- c(tif_files, tgz_avg_rad_filename)
-              
-              message("Decompressing ", tgz_avg_rad_filename, " ", date())
-              untar(tgz_fl, files = tgz_avg_rad_filename)
-            }
-            
-            #tifs = list.files(raster_dir, pattern = "^svdnb.*.avg_rade9.tif$", ignore.case = T)
-            
-            message("Reading in the rasters " , date())
-            #rast_upper <- raster(paste(raster_dir,"/",tifs[1],sep=""))
-            rast_upper_filename <- tif_files[grep(pattern = "00N060W", x = tif_files)]
-            rast_upper <- raster(rast_upper_filename)
-            
-            #rast_lower <- raster(paste(raster_dir,"/",tifs[2],sep=""))  
-            rast_lower_filename <- tif_files[grep(pattern = "75N060W",x = tif_files)]
-            rast_lower <- raster(rast_lower_filename)
-            
-            projection(rast_upper) <- CRS(wgs84)
-            projection(rast_lower) <- CRS(wgs84)
-            
-            message("Cropping the rasters ", date())
-            ke_rast_upper <- crop(rast_upper, ke_shp_ward)
-            ke_rast_lower <- crop(rast_lower, ke_shp_ward)
-            
-            message("Releasing the raster variables")
-            rm(rast_lower, rast_upper)
-            
-            message("Deleting the raster files ", date())
-            unlink(tif_files)
-            
-            tif_files <- vector()
-            
-            gc()
-            
-            message("Merging the cropped rasters ", date())
-            ke_rast_combined <- merge(ke_rast_upper, ke_rast_lower)
-            
-            message("Masking the merged raster ", date())
-            #ke_rast_combined <- mask(ke_rast_combined, ke_shp_ward)
-            ke_rast_combined <- rasterize(ke_shp_ward, ke_rast_combined, mask=TRUE) #crops to polygon edge & converts to raster
-            
-            message("Deleting the two component rasters ", date())
-            rm(ke_rast_lower, ke_rast_upper)
-            
-            message("Writing the merged raster to disk ", date())
-            writeRaster(x = ke_rast_combined, filename = paste0("outputrasters/",yearmonth,".tif"), overwrite=TRUE)
-            
-            registerDoParallel(cores=2)
-            
-            message("Begin extracting the data from the merged raster ", date())
-            sum_avg_rad <- foreach(i=1:nrow(ke_shp_ward@data), .combine=rbind) %dopar% {
-              
-              message("Extracting data from polygon " , i, " ", date())
-              dat <- masq(ke_shp_ward,ke_rast_combined,i)
-              
-              message("Calculating the mean of polygon ", i, " ", date())
-              
-              #calculate and return the mean of all the pixels
-              data.frame(mean = mean(dat, na.rm=TRUE))
-            }
-            
-            #merge the calculated means for the polygon as a new column
-            extract <- cbind(extract, sum_avg_rad)
-            
-            #name the new column with the yearmonth of the data
-            names(extract)[ncol(extract)] <- paste0("NL_", yearmonth)
-            message("DONE processing ", yearmonth, " ", date())
-          }
-          
-          message("COMPLETE. Writing data to disk")
-          write.table(extract, "nightlight_means.csv", row.names= F, sep = ",")
-        }else
-        {
-          message("No nightlights to process")
-        }
+        processNLCountryViirs()
       }
     }
     else if (nlType == "OLS")
     {
-      #determine tiles to download
+      #for all required countries
+      for (ctryCode in unique(ctryCodes))
+      {
+        processNLCountryOls()
+      }
       
     }
-
-
-      
-      
-      #download required year_month tiles
   }
-
-  
 }
 
+initNtLts <- function()
+{
+  #the constructor
+  
+  #set directory paths (tiles, ctrypoly, output/cropped rasters, downloads/temp?)
+  
+  #create directories
+  if(!dir.exists(dirPolygon))
+    dir.create(dirPolygon)
+  
+  if(!dir.exists(dirRasterOLS))
+    dir.create(dirRasterOLS)
+  
+  if(!dir.exists(dirRasterVIIRS))
+    dir.create(dirRasterVIIRS)
+  
+  if(!dir.exists(dirNlData))
+    dir.create(dirNlData)
+  
+  tSpPolysDFs <<- createNlTilesSpPolysDF()
+  
+  ctryCodeTiles <<- mapAllCtryPolyToTiles()
+  #
+}
+
+cleanup <- function()
+{
+  #the destructor
+  
+  #del temp files
+  
+  #ensure files have been written that need to
+  
+  #
+}
