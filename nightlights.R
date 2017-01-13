@@ -152,6 +152,8 @@ mapAllCtryPolyToTiles <- function()
 
   ctryCodeTiles <- as.data.frame(cbind(code = as.character(map@data$ISO3), tiles = ctryCodeTiles))
   
+  names(ctryCodeTiles) <- c("code", "tiles")
+  
   ctryCodeTiles$code <- as.character(ctryCodeTiles$code)
   
   #plot(tSpPolysDFs, add=TRUE)
@@ -189,6 +191,16 @@ getTilesCtryIntersect <- function(ctryCode)
   #plot(ctrySpPolysDF, add=TRUE)
   
   return (ctryCodeTiles)
+}
+
+tileName2Idx <- function(tileName)
+{
+  return (which(nlTiles$name == tileName))
+}
+
+tileIdx2Name <- function(tileNum)
+{
+  return (nlTiles[tileNum, "name"])
 }
 
 tilesPolygonIntersect <- function(shp_polygon)
@@ -229,6 +241,10 @@ getNtLts <- function(inputYear)
 
 getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
 {
+  inYear <- as.character(inYear)
+   
+  nMonth <- as.character(inMonth)
+
   #Function to return the url of the file to download given the year, month, and nlTile index
   #nlTile is a global list
   
@@ -239,9 +255,10 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   ntLtsPageLocalName <- "ntltspage.html"
 
   #if the file does not exist or is older than a week download it afresh
+  #not working. download.file does not seem to update mtime
   if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))))
   {
-    download.file(ntLtsPageHtml, ntLtsPageLocalName, method = "wget")
+    download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget")
   }
   #else
   #  print(paste0(ntLtsPageHtml, " already downloaded"))
@@ -255,7 +272,7 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   #sample url: https://data.ngdc.noaa.gov/instruments/remote-sensing/passive/spectrometers-radiometers/imaging/viirs/dnb_composites/v10//201210/vcmcfg/SVDNB_npp_20121001-20121031_75N180W_vcmcfg_v10_c201602051401.tgz
   
   #create the pattern
-  ntLtsPageRgxp <- paste0("SVDNB_npp_", inYear, inMonth, "01.*", nlTiles[inTile], ".*vcmcfg")
+  ntLtsPageRgxp <- paste0("SVDNB_npp_", inYear, inMonth, "01.*", nlTiles[inTile,"name"], ".*vcmcfg")
   
   #search for the pattern in the page
   ntLtsPageHtml <- ntLtsPage[grep(pattern = ntLtsPageRgxp, x=ntLtsPage)]
@@ -264,26 +281,43 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   #the url is in the second position
   ntLtsPageUrl <- unlist(strsplit(ntLtsPageHtml, '"'))[2]
 
+  #****NOTE: temp for testing using local download****
+
+  fname <- stringr::str_extract(ntLtsPageUrl, "SVDNB.*.tgz")
+  ntLtsPageUrl <- paste0("http://localhost/", fname)
+  
+  #****DELETE WHEN DONE****
+  
   return (ntLtsPageUrl)
 }
 
-getNtLtsViirs <- function(inputYear, inputMonth, tileNum)
+getNtLtsFileLcllNameVIIRS <- function(nlYear, nlMonth, tileNum)
 {
-  result <- FALSE
+  paste0(dirRasterVIIRS, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz")
+}
+
+getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
+{
+  rsltDnld <- NA
   
-  ntLtsFileLocalName <- paste0("viirs_", inputYear, "_", inputMonth, ".tgz")
+  ntLtsFileLocalName <- getNtLtsFileLcllNameVIIRS(nlYear, nlMonth, tileNum)
   
   if (!file.exists(ntLtsFileLocalName))
   {
-    ntLtsFileUrl <- getNtLtsUrlViirs(inputYear, inputYear, tileNum)
+    ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
     
     rsltDnld <- download.file(ntLtsFileUrl, ntLtsFileLocalName, mode = "wb", method = "wget", extra = "-c")
   }
+  else
+  {
+    #if the file is found we can return positive? Probably not unless there's an overwrite option
+    #for our purposes return true
+    print("File exists, set Overwrite = TRUE to overwrite")
+    
+    rsltDnld <- 0
+  }
   
-  if (rsltDnld == 0)
-    result <- TRUE
-  
-  return (result)
+  return (rsltDnld == 0)
 }
 
 masq_viirs <- function(shp, rast, i)
@@ -504,76 +538,85 @@ processNLCountryOls <- function(cntryCode, nlYear, nlMonth)
   }
 }
 
-processNLCountryViirs <- function(ctrCode, ctryAdmLevels, nlYear, nlMonth)
+processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
 {
-  #assumes tiles hve been downloaded
-  #change directory to the path
-  setwd(dirRasterVIIRS)
+  #Download all tiles
+  getNtLtsViirs()
   
-  ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
-  #ke_shp_ward <- readOGR("KEN_adm_shp", "KEN_adm3")
-  
-  ke_extent <- extent(ke_shp_ward)
-  
-  ##Specify WGS84 as the projection of the raster file
-  wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-  
-  projection(ke_shp_ward) <- CRS(wgs84)
+  for (nlCtryCode in nlCtryCodes)
+    processNLCountryViirs(ctryCode, nlYearMonth)
+}
+
+ctryShpLyrName2Num <- function(layerName)
+{
+  return(as.numeric(gsub("[^[:digit:]]", "", layerName)))
+}
+
+processNLCountryViirs <- function(ctryCode, nlYearMonth)
+{
+  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+
+  ctryExtent <- extent(ctryPoly)
+
+  projection(ctryPoly) <- CRS(wgs84)
   
   ##Obtain a list of TIF files, load in the first file in list
   #get a list of the tgzs available
-  tgzs <- list.files(dirRasterVIIRS, pattern = "^svdnb.*.*vcmcfg.*.tgz$", ignore.case = T)
+  #tgzs <- list.files(dirRasterVIIRS, pattern = "^svdnb.*.*vcmcfg.*.tgz$", ignore.case = T)
   
   #pick the unique year month from the available files
-  all_years_months <- unique(substr(tgzs,11,16))
+  #all_years_months <- unique(substr(tgzs,11,16))
   
-  if (file.exists("nightlight_means.csv"))
+  if (existsCtryNlDataFile(ctryCode))
   {
-    extract <- read.csv("nightlight_means.csv",header = TRUE,sep = ",")
+    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode),header = TRUE,sep = ",")
     
-    existing_data_cols <- names(extract)
+    existingDataCols <- names(ctryNlDataDF)
     
-    existing_year_months <- existing_data_cols[grep("^NL_[:alphanum:]*", existing_data_cols)]
+    existingYearMonths <- existingDataCols[grep("^NL_[:alphanum:]*", existingDataCols)]
     
-    existing_year_months <- stringr::str_replace(existing_year_months, "NL_", "")
+    existingYearMonths <- stringr::str_replace(existingYearMonths, "NL_", "")
     
-    existing_pos <- sapply(existing_year_months, FUN = function(x) grep(x, all_years_months))
+    #existing_pos <- sapply(existing_year_months, FUN = function(x) grep(x, all_years_months))
     
-    all_years_months <- all_years_months[-existing_pos]
+    #all_years_months <- all_years_months[-existing_pos]
   } else
   {
-    extract <- ke_shp_ward@data[,c("ID_1","NAME_1","ID_2","NAME_2","ID_3","NAME_3")]
+    ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
     
-    names(extract) <- c("county_id", "county_name", "constituency_id", "constituency_name", "ward_id", "ward_name")
+    ctryPolyAdmLevels$name <- tolower(ctryPolyAdmLevels$name) 
+    
+    nLyrs <- nrow(ctryPolyAdmLevels)
+    
+    nums <- c(paste(1:nLyrs,1:nLyrs))
+    nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+    
+    ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
+    
+    ctryNlDataDF <-ctryPoly@data[,eval(ctryPolyAdmCols)]
+    
+    ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+    
+    names(ctryNlDataDF) <- ctryPolyColNames
+    
+    #  c("county_id", "county_name", "constituency_id", "constituency_name", "ward_id", "ward_name")
   }
   
-  if (length(all_years_months)>0)
-  {
-    for (yearmonth in all_years_months)
-    {
-      message("Begin processing ", yearmonth, " ", date())
-      
-      #get the tgzs that were collected in the period
-      year_month_tiles_idx <- grep(paste0("SVDNB_npp_", yearmonth), tgzs)
-      
-      year_month_tiles_tgz <- tgzs[year_month_tiles_idx]
-      
-      tif_files <- vector()
-      
-      for (tgz_fl in year_month_tiles_tgz)
-      {
-        message("Extracting ", tgz_fl, " ", date())
-        
-        message("Getting list of files in ", tgz_fl, " ", date())
-        tgz_file_list <- untar(tgz_fl, list = TRUE)
-        #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
-        
-        tgz_avg_rad_filename <- tgz_file_list[grep("svdnb.*.avg_rade9.tif$",tgz_file_list, ignore.case = T)]
-        tif_files <- c(tif_files, tgz_avg_rad_filename)
-        
-        message("Decompressing ", tgz_avg_rad_filename, " ", date())
-        untar(tgz_fl, files = tgz_avg_rad_filename)
-      }
+  message("Begin processing ", yearmonth, " ", date())
+  
+  tif_files <- vector()
+
+  message("Extracting ", tgz_fl, " ", date())
+  
+  message("Getting list of files in ", tgz_fl, " ", date())
+  tgz_file_list <- untar(tgz_fl, list = TRUE)
+  #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
+  
+  tgz_avg_rad_filename <- tgz_file_list[grep("svdnb.*.avg_rade9.tif$",tgz_file_list, ignore.case = T)]
+
+  message("Decompressing ", tgz_avg_rad_filename, " ", date())
+  untar(tgz_fl, files = tgz_avg_rad_filename)
+    
       
       #tifs = list.files(dirRasterVIIRS, pattern = "^svdnb.*.avg_rade9.tif$", ignore.case = T)
       
@@ -654,6 +697,22 @@ getCtryPolyUrl <- function(ctryCode)
   return (paste0(basePolyUrl, ctryCode, "_adm_shp.zip"))
 }
 
+getCtryNlDataFname <- function(ctryCode)
+{
+  return (paste0(ctryCode, "_NLData.csv"))
+}
+
+getCtryNlDataFnamePath <- function(ctryCode)
+{
+  return (paste0(dirNlData, "/", getCtryNlDataFname(ctryCode)))
+}
+
+existsCtryNlDataFile <- function(ctryCode)
+{
+  #for polygons look for shapefile dir
+  return(file.exists(getCtryNlDataFnamePath(ctryCode)))
+}
+
 polyFnamePathExists <- function(ctryCode)
 {
   #for polygons look for shapefile dir
@@ -665,9 +724,48 @@ polyFnameZipExists <- function(ctryCode)
   return(file.exists(getPolyFnameZip(ctryCode)))
 }
 
-getShpLyrName <- function(ctryCode, lyrNum)
+getCtryShpLyrName <- function(ctryCode, lyrNum)
 {
   return(paste0(ctryCode, "_adm", lyrNum))
+}
+
+getCtryShpLowestLyrName <- function(ctryCode)
+{
+  layers <- ogrListLayers(getPolyFnamePath(ctryCode))
+  
+  admLayers <- layers[grep("adm", layers)]
+  
+  admLayerNums <- gsub("[^[:digit:]]", "", admLayers)
+  
+  lowestAdmLyrName <- admLayers[order(as.numeric(admLayerNums),decreasing = T)][1]
+  
+  return(lowestAdmLyrName)
+}
+
+getCtryPolyAdmLevelNames <- function(ctryCode)
+{
+  lowestLayer <- getCtryShpLowestLyrName(ctryCode)
+  
+  numLayers <- ctryShpLyrName2Num(lowestLayer)
+  
+  admLevels <- NULL
+  
+  for (lyrNum in 1:numLayers)
+  {
+    lyrPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLyrName(ctryCode, lyrNum))
+    
+    lvlTypeName <- paste0("TYPE_",lyrNum)
+    
+    lvlName <- unlist(lyrPoly@data[1,eval(lvlTypeName)])
+    
+    admLevels <- rbind(admLevels, as.character(lvlName))
+  }
+  
+  admLevels <- as.data.frame(cbind(1:numLayers, admLevels))
+  
+  names(admLevels) <- c("id", "name")
+  
+  return (admLevels)  
 }
 
 dnldCtryPoly <- function(ctryCode)
@@ -745,7 +843,37 @@ getPolyFnameZip <- function(ctryCode)
   return (polyFname)
 }
 
-processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
+getNlYearMonthTiles <- function(nlYearMonth, tileList)
+{
+  success <- TRUE
+  
+  #ensure we have all required tiles
+  for (tile in tileList)
+  { 
+    nlYear <- substr(nlYearMonth, 1, 4)
+    
+    nlMonth <- substr(nlYearMonth, 5, 6)
+    
+    nlTile <- tileName2Idx(tile)
+    
+    print(paste0(nlYear, nlMonth, nlTile))
+    
+    #download tile
+    success <- success && getNtLtsViirs(nlYear, nlMonth, nlTile)
+  }
+  
+  return (success)
+}
+
+getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
+{
+  for (nlYearMonth in nlYearMonths)
+  {
+    getNlYearMonthTiles(nlYearMonth, tileList)
+  }
+}
+
+processNtLts <- function (ctryCodes, nlYearMonths)
 {
   #nlYearMonths is a character vector with each entry containing an entry of the form YYYYMM (%Y%m)
   #e.g. 201401 representing the month for which nightlights should be calculated
@@ -778,29 +906,15 @@ processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
   ##If any tiles cannot be found/downloaded then abort and try for next country
   #we probably need to flag failed downloads so we don't try to process them and report back to user
   
-#   #init the list of tiles to be downloaded
-#   tileList <- NULL
+  #init the list of tiles to be downloaded
+  tileList <- NULL
   
   #For each country
   for (ctryCode in unique(ctryCodes))
   {
-    print (paste0("Checking polygon for ", ctryCode))
+    ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
     
-    #Download the country polygon shapefile if it does not exist
-    if (!file.exists(getPolyFnamePath(ctryCode)))
-    {
-      if (!dnldCtryPoly(ctryCode))
-      {
-        print (paste0("Could not download polygon for ", ctryCode, ". Aborting ..."))
-       
-        next()
-      }else
-      {
-        print (paste0("Downloaded polygon for ", ctryCode))
-      }
-    }
-
-    tileList <- tilesPolygonIntersect(ctryCode)
+    tileList <- c(tileList, setdiff(ctryTiles, tileList))
   }
   
   #determine tiles to download
@@ -812,19 +926,17 @@ processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
 
     if (nlType == "VIIRS")
     {
-      #ensure we have all required tiles
-      for (tile in tileList)
-      {    
-        nlTileFname <- getNtLtTileLclFname(nlYearMonth)
+      if (!getNlYearMonthTiles(nlYearMonth, tileList))
+      {
+        print("Something went wrong with the tile downloads. Aborting ...")
         
-        #download tile
-        getNtLtsTileViirs(nlYearMonth, tile)
+        break
       }
       
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-        processNLCountryViirs()
+        processNLCountryViirs(ctryCode)
       }
     }
     else if (nlType == "OLS")
@@ -832,7 +944,7 @@ processNtLts <- function (ctryCodes, nlYearMonths, nlTypes)
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-        processNLCountryOls()
+        processNLCountryOls(ctryCode)
       }
       
     }
