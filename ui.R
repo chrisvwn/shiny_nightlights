@@ -5,26 +5,47 @@
 # http://shiny.rstudio.com
 #
 
-library(shiny)
+suppressMessages(library(shiny))
 
-shinyUI(fluidPage(
+suppressMessages(source("nightlights.R"))
 
-  # Application title
-  titlePanel("Old Faithful Geyser Data"),
 
-  # Sidebar with a slider input for number of bins
-  sidebarLayout(
-    sidebarPanel(
-      sliderInput("bins",
-                  "Number of bins:",
-                  min = 1,
-                  max = 50,
-                  value = 30)
-    ),
+filenames<-list.files(dirNlData)
 
-    # Show a plot of the generated distribution
-    mainPanel(
-      plotOutput("distPlot")
+ctryCodesWithData <- substr(filenames, 1, 3)
+
+allCtryCodes <- getAllNlCtryCodes()
+
+shinyUI(
+  fluidPage(
+
+    # Application title
+    titlePanel("NightLights"),
+  
+    # Sidebar with a slider input for number of bins
+    sidebarLayout(
+      sidebarPanel(
+        checkboxGroupInput(inputId = "countries",
+                    label = "Select Country(ies)",
+                    choices = ctryCodesWithData
+                    ),
+        
+        uiOutput("intraCountry")
+        
+        # uiOutput(output$interCountry)
+      ),
+
+      # Show a plot of
+      mainPanel(
+        tabsetPanel(
+          tabPanel("Plot",
+                   plotOutput(outputId = "plotInterCountry")
+                   ),
+          tabPanel("Data",
+                   tableOutput(outputId = "dataset"))
+        )
+        
+      )
     )
   )
-))
+)

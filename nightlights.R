@@ -562,6 +562,31 @@ ctryCodeToNAME <- function(ctryCode)
   return(rworldmap::isoToName(ctryCode))
 }
 
+ctryPolyLyrNames <- function (nLyrs)
+{
+  #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
+  #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
+  #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
+  nums <- c(paste(1:nLyrs,1:nLyrs))
+  
+  nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+  
+  return(paste(c("ID_", "NAME_"), nums, sep=""))
+}
+
+ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
+{
+  #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
+  #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
+  #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
+  nums <- c(paste(1:nLyrs,1:nLyrs))
+  
+  nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+  
+  return(paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep=""))
+}
+
+
 processNLCountryOls <- function(cntryCode, nlYear)
 {
   message("processNLCountryOLS: ")
@@ -603,15 +628,9 @@ processNLCountryOls <- function(cntryCode, nlYear)
     #the number of admin levels
     nLyrs <- nrow(ctryPolyAdmLevels)
     
-    #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
-    #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
-    #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
-    nums <- c(paste(1:nLyrs,1:nLyrs))
-    
-    nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-    
-    ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
-    
+    #the names of the layers which will become column names
+    ctryPolyAdmCols <- ctryPolyLyrNames(nLyrs)
+
     #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
     ctryNlDataDF <-ctryPoly@data[,eval(ctryPolyAdmCols)]
     
@@ -625,7 +644,7 @@ processNLCountryOls <- function(cntryCode, nlYear)
     #combine the columns
     ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
     
-    ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+    ctryPolyColNames <- ctryPolyAdmColNames(ctryPolyAdmLevels, nLyrs)
     
     #add the country_code and area columns to the dataframe
     ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
