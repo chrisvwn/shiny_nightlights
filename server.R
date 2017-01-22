@@ -14,30 +14,47 @@ source("nightlights.R")
 shinyServer(function(input, output) {
 
     ctryAdmLevels <- reactive({
-      if (length(input$countries) == 0)
+      if (length(input$countries) != 1)
         return()
 
       temp <- read.csv(getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
       
       cols <- names(temp)
-      cols <- cols[grep("name|code", cols)]
-      cols <- gsub("_.*", "", cols)
+      
+      cols <- cols[-grep("area|NL_", cols)]
+      
+      #cols <- gsub("_.*", "", cols)
     })
     
     ctryNlData <- reactive({
-      if (is.null(ctryAdmLevels))
-        return()
-      
       ctryData <- NULL
 
-      for (ctryCode in input$countries)
+      if (length(input$countries) == 1)
       {
-        temp <- read.csv(getCtryNlDataFnamePath(ctryCode))
-        ctryData <- rbind(ctryData, temp)
+        ctryData <- read.csv(getCtryNlDataFnamePath(input$countries))
       }
+      else if(length(input$countries) > 1)
+      {
+        for (ctryCode in input$countries)
+        {
+          temp <- read.csv(getCtryNlDataFnamePath(ctryCode))
+          
+          ctryCols <- grep("country|NL_", names(temp))
+          
+          temp <- temp[ , ctryCols]
+          
+          if (is.null(ctryData))
+          {
+            ctryData <- temp
+          }else
+          {
+            ctryData <- rbind(ctryData, temp)
+          }
+        }
+      }
+      return(ctryData)
     })
 
-  
     output$intraCountry <- renderUI({
       if(is.null(ctryAdmLevels()))
         return()
@@ -47,39 +64,51 @@ shinyServer(function(input, output) {
                      choices = ctryAdmLevels()
                    )
     })
-    
 
-    output$plotInterCountry <- renderPlot({
+    output$plotNightLights <- renderPlot({
       if (is.null(ctryNlData()))
         return()
       
-      ctryData <- ctryNlData()
-      
-      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
-      
-      meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
-      
-      ctryData <- melt(ctryData, measure.vars=meltVarNames)
-      
-      plotData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
-
-      ggplot(data=plotData, aes(x=country_code, y=value)) + geom_boxplot()
+      if (length(input$countries) == 1)
+      {
+        ctryData <- ctryNlData()
+        
+        meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
+        
+        meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
+        
+        ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+        
+        ggplot(data=ctryData, aes(x=ctryData[,input$admLevel], y=value)) + geom_boxplot() + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + facet_wrap(~ variable, ncol = 1)
+      }
+      else if (length(input$countries) > 1)
+      {
+        ctryData <- ctryNlData()
+        
+        meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
+        
+        meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
+        
+        ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+        
+        plotData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+        
+        ggplot(data=plotData, aes(x=variable, y=value, group=country_code, col=country_code))+ geom_line()
+      }
+      else
+      {
+        return()
+      }
     })
-  
+    
     output$dataset <- renderTable({
       if(is.null(ctryNlData()))
-        return()
+        return("NO DATA")
       
       ctryNlData()
     })
     
-    
-#   output$interCountry <- renderUI({
-#     if (length(input$countries) > 1)
-#     {
-#       admLevels <- getCtryPolyAdmLevelNames(input$countries)
-#       
-#       radioButtons(inputId = "admLevels", choices = admLevels, selected = admLevels[1])
-#     }
-#   })
+    output$message <- renderText({
+      input$countries
+    })
 })

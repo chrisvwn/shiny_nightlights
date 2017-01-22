@@ -4,7 +4,7 @@ library(raster) # interface to raster (e.g. TIFF) data
 library(sp) #interface to spatial data processing
 library(rgdal) #interface for manipulating spatial data
 
-library(lubridate)
+#library(lubridate)
 library(reshape2)
 library(stringr)
 library(lattice)
@@ -51,7 +51,8 @@ masq <- function(shp,rast,i)
 }
 
 #Set directory path
-raster_dir = "/btrfs/nightlights/"
+#raster_dir = "/btrfs/nightlights/"
+raster_dir = "/media/NewVolume/Biz/Ishara/Projects/shiny_nightlights/tiles/"
 
 #change directory to the path
 setwd(raster_dir)

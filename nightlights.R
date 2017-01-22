@@ -34,7 +34,7 @@ dirRasterOLS <- "./tiles"
 #Set directory path
 dirRasterVIIRS <- "./tiles"
 
-dirRasterOutput <- "outputrasters"
+dirRasterOutput <- "./outputrasters"
 
 dirPolygon <- "./polygons"
 
@@ -623,7 +623,7 @@ processNLCountryOls <- function(cntryCode, nlYear)
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
     
     #conver to lower case for consistency
-    ctryPolyAdmLevels$name <- tolower(ctryPolyAdmLevels$name) 
+    ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
     
     #the number of admin levels
     nLyrs <- nrow(ctryPolyAdmLevels)
@@ -802,19 +802,21 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
     
     #conver to lower case for consistency
-    ctryPolyAdmLevels$name <- tolower(ctryPolyAdmLevels$name) 
+    ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
     
     #the number of admin levels
-    nLyrs <- nrow(ctryPolyAdmLevels)
+    nLyrs <- length(ctryPolyAdmLevels)
     
     #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
     #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
     #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
-    nums <- c(paste(1:nLyrs,1:nLyrs))
+    #nums <- c(paste(1:nLyrs,1:nLyrs))
     
-    nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+    #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
     
-    ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
+    #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
+    
+    ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
     
     #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
     ctryNlDataDF <-ctryPoly@data[,eval(ctryPolyAdmCols)]
@@ -829,10 +831,11 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     #combine the columns
     ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
     
-    ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+    #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+    ctryPolyColNames <- ctryPolyAdmLevels
     
     #add the country_code and area columns to the dataframe
-    ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
+    ctryPolyColNames <- c("country", ctryPolyColNames, "area_sq_km")
     
     names(ctryNlDataDF) <- ctryPolyColNames
   }
@@ -1010,12 +1013,12 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
     
     lvlName <- unlist(lyrPoly@data[1,eval(lvlTypeName)])
     
-    admLevels <- rbind(admLevels, as.character(lvlName))
+    admLevels <- c(admLevels, as.character(lvlName))
   }
   
-  admLevels <- as.data.frame(cbind(1:numLayers, admLevels))
+  #admLevels <- as.data.frame(cbind(1:numLayers, admLevels))
   
-  names(admLevels) <- c("id", "name")
+  #names(admLevels) <- c("id", "name")
   
   return (admLevels)  
 }
@@ -1034,10 +1037,12 @@ dnldCtryPoly <- function(ctryCode)
       if(download.file(url = getCtryPolyUrl(ctryCode), destfile = getPolyFnameZip(ctryCode), method = "wget", mode = "wb", extra = "-c") == 0)
       {
         result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
+        file.remove(getPolyFnameZip(ctryCode))
       }
     }else
     {
       result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
+      file.remove(getPolyFnameZip(ctryCode))
     }
   }
   else
@@ -1048,9 +1053,25 @@ dnldCtryPoly <- function(ctryCode)
   return (!is.null(result))
 }
 
-getAllNlYears <- function()
+getAllNlYears <- function(nlType = "VIIRS")
 {
-  return (paste(1992:year(now()), c(paste("0",1:9, sep= ""),10:12), sep=""))
+  if (nlType == "OLS")
+    return (1992:2013)
+  else if (nlType == "VIIRS")
+  {
+    yrs <- 2012:year(now())
+    mths <- c(paste("0",1:9, sep= ""),10:12)
+    
+    currYrMth <- paste0(year(now()), ifelse(month(now())<10,paste("0", month(now()), sep=""), month(now())))
+    
+    nlYrMths <- unlist(lapply(yrs, FUN = function(x) paste(x,mths,sep="")))
+    
+    nlYrMths <- nlYrMths[nlYrMths >= "201204" & nlYrMths <= currYrMth]
+    
+    return (nlYrMths)
+  }
+  else
+    return()
 }
 
 getAllNlCtryCodes <- function()
@@ -1070,7 +1091,7 @@ getNlType <- function(nlYear)
   if (nlYear < 1992 || nlYear > year(now()))
     return(NA)
 
-  if (nlYear > 1992 && nlYear < 2014)
+  if (nlYear > 1992 && nlYear < 2012)
     return("OLS")
   else
     return("VIIRS")
@@ -1160,7 +1181,7 @@ getCtryCodeTileList <- function(ctryCode)
   return (ctryTiles)
 }
 
-processNtLts <- function (ctryCodes, nlYearMonths)
+processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYears(), nlType="VIIRS")
 {
   #nlYearMonths is a character vector with each entry containing an entry of the form YYYYMM (%Y%m)
   #e.g. 201401 representing the month for which nightlights should be calculated
@@ -1170,16 +1191,16 @@ processNtLts <- function (ctryCodes, nlYearMonths)
   #1. if years only given, infer months
   #2.verification & deduplication
   
-  if (length(nlYearMonths) == 0)
+  if (is.null(nlYearMonths))
   {
-    nlYears <- getAllNlYears()
+    nlYears <- getAllNlYears(nlType)
   }
 
   #use supplied list of ctryCodes in ISO3 format else use default of all
   #TODO: 
   #1.accept other formats and convert as necessary
   #2.verification & deduplication
-  if (length(ctryCodes) == 0)
+  if (is.null(ctryCodes))
   {
     #get list of all country codes
     ctryCodes <- getAllNlCtryCodes()
@@ -1216,19 +1237,7 @@ processNtLts <- function (ctryCodes, nlYearMonths)
         
         tileList <- c(tileList, setdiff(ctryTiles, tileList))
       }
-    }
-    else if(nlType == "OLS")
-    {
-      print("tile list not required")
-    }
-    else
-    {
-      return ("Unknown nlType")
-    }
     
-    #download the tiles
-    if (nlType == "VIIRS")
-    {
       if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
       {
         print("Something went wrong with the tile downloads. Aborting ...")
@@ -1240,6 +1249,18 @@ processNtLts <- function (ctryCodes, nlYearMonths)
       for (ctryCode in unique(ctryCodes))
       {
         processNLCountryVIIRS(ctryCode, nlYearMonth)
+      }
+      
+      for (tile in tileList)
+      {
+        nlYear <- substr(nlYearMonth, 1, 4)
+        nlMonth <- substr(nlYearMonth, 5, 6)
+        
+        #del the tif file
+        file.remove(getNtLtsTifLcllNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
+        
+        #del the zip file
+        file.remove(getNtLtsZipLcllNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
       }
     }
     else if (nlType == "OLS")

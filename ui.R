@@ -30,7 +30,14 @@ shinyUI(
                     choices = ctryCodesWithData
                     ),
         
-        uiOutput("intraCountry")
+        uiOutput("intraCountry"),
+        
+        radioButtons(inputId = "nltype",
+                     label = "Nightlight type",
+                     choices = c("OLS", "VIIRS"),
+                     selected = "VIIRS",
+                     inline = T),
+        uiOutput("message")
         
         # uiOutput(output$interCountry)
       ),
@@ -39,7 +46,7 @@ shinyUI(
       mainPanel(
         tabsetPanel(
           tabPanel("Plot",
-                   plotOutput(outputId = "plotInterCountry")
+                   plotOutput(outputId = "plotNightLights")
                    ),
           tabPanel("Data",
                    tableOutput(outputId = "dataset"))
