@@ -262,7 +262,7 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
 
   #if the file does not exist or is older than a week download it afresh
   #not working. download.file does not seem to update mtime
-  if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))))
+  if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))) || file.size(ntLtsPageLocalName) == 0)
   {
     download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget")
   }
@@ -302,7 +302,7 @@ getNtLtsZipLcllNameVIIRS <- function(nlYear, nlMonth, tileNum)
   return (paste0(dirRasterVIIRS, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz"))
 }
 
-getNtLtsTifLcllNameVIIRS <- function(nlYear, nlMonth, tileNum)
+getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum)
 {
   return (paste0(dirRasterVIIRS, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tif"))
 }
@@ -312,8 +312,9 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   rsltDnld <- NA
   
   ntLtsZipLocalNameVIIRS <- getNtLtsZipLcllNameVIIRS(nlYear, nlMonth, tileNum)
+  ntLtsTifLocalNameVIIRS <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)
   
-  if (!file.exists(ntLtsZipLocalNameVIIRS))
+  if (!file.exists(ntLtsZipLocalNameVIIRS) && !file.exists(ntLtsTifLocalNameVIIRS))
   {
     ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
     
@@ -332,7 +333,7 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   {
     message("Extracting ", ntLtsZipLocalNameVIIRS, " ", base::date())
     
-    if (!file.exists(getNtLtsTifLcllNameVIIRS(nlYear, nlMonth, tileNum)))
+    if (!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
     {
       message("Getting list of files in ", ntLtsZipLocalNameVIIRS, " ", base::date())
       
@@ -350,11 +351,11 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
       
       message("Decompressing ", tgzAvgRadFilename, " ", base::date())
       
-      if(!file.exists(getNtLtsTifLcllNameVIIRS(nlYear, nlMonth, tileNum)))
+      if(!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
       {
         untar(ntLtsZipLocalNameVIIRS, files = tgzAvgRadFilename, exdir = dirRasterVIIRS)
       
-        file.rename(paste0(dirRasterVIIRS,"/",tgzAvgRadFilename), getNtLtsTifLcllNameVIIRS(nlYear, nlMonth, tileNum))
+        file.rename(paste0(dirRasterVIIRS,"/",tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
       }
     }
     else
@@ -504,7 +505,7 @@ getNtLtsOLS <- function(nlYear, tileNum)
       
       message("Decompressing ", tgzAvgRadFilename, " ", base::date())
       
-      if(!file.exists(getNtLtsTifLcllNameVIIRS(nlYear, nlMonth, tileNum)))
+      if(!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
       {
         untar(ntLtsZipLocalName, files = tgzAvgRadFilename, exdir = dirRasterOLS)
         
@@ -621,35 +622,43 @@ processNLCountryOls <- function(cntryCode, nlYear)
   {
     #get the list of admin levels in the polygon shapefile
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
-    
-    #conver to lower case for consistency
-    ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
-    
-    #the number of admin levels
-    nLyrs <- nrow(ctryPolyAdmLevels)
-    
-    #the names of the layers which will become column names
-    ctryPolyAdmCols <- ctryPolyLyrNames(nLyrs)
-
-    #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
-    ctryNlDataDF <-ctryPoly@data[,eval(ctryPolyAdmCols)]
-    
+   
     #add the area as reported by the polygon shapefile as a convenience
     areas <- area(ctryPoly)
     
-    #we add the country code to ensure even a renamed file is identifiable
-    #repeat ctryCode for each row in the polygon. equiv of picking layer0
-    ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
+    if (length(ctryPolyAdmLevels) > 0)
+    {
+      #conver to lower case for consistency
+      ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
+      
+      #the number of admin levels
+      nLyrs <- length(ctryPolyAdmLevels)
+      
+      #the names of the layers which will become column names
+      ctryPolyAdmCols <- ctryPolyLyrNames(nLyrs)
+  
+      #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
+      ctryNlDataDF <- ctryPoly@data[,eval(ctryPolyAdmCols)]
     
-    #combine the columns
-    ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
-    
-    ctryPolyColNames <- ctryPolyAdmColNames(ctryPolyAdmLevels, nLyrs)
-    
-    #add the country_code and area columns to the dataframe
-    ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
-    
-    names(ctryNlDataDF) <- ctryPolyColNames
+
+      #we add the country code to ensure even a renamed file is identifiable
+      #repeat ctryCode for each row in the polygon. equiv of picking layer0
+      ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
+      
+      #combine the columns
+      ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
+      
+      ctryPolyColNames <- ctryPolyAdmColNames(ctryPolyAdmLevels, nLyrs)
+      
+      #add the country_code and area columns to the dataframe
+      ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
+      
+      names(ctryNlDataDF) <- ctryPolyColNames
+      
+    } else
+    {
+      ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
+    }
   }
   
   if(!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
@@ -725,7 +734,7 @@ processNLCountryOls <- function(cntryCode, nlYear)
   message("Writing the merged raster to disk ", base::date())
   writeRaster(x = rast_ke, filename = paste0(dirRasterOutput, nlYear, ".tif"), overwrite=TRUE)
   
-  registerDoParallel(cores=2)
+  registerDoParallel(cores=6)
   
   message("Begin extracting the data from the merged raster ", base::date())
   sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
@@ -768,7 +777,7 @@ ctryShpLyrName2Num <- function(layerName)
 
 processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
 {
-  message("processNLCountryVIIRS: ")
+  message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
   
   ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
   
@@ -800,44 +809,53 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   {
     #get the list of admin levels in the polygon shapefile
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
-    
+
     #conver to lower case for consistency
     ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
-    
-    #the number of admin levels
-    nLyrs <- length(ctryPolyAdmLevels)
-    
-    #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
-    #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
-    #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
-    #nums <- c(paste(1:nLyrs,1:nLyrs))
-    
-    #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-    
-    #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
-    
-    ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
-    
-    #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
-    ctryNlDataDF <-ctryPoly@data[,eval(ctryPolyAdmCols)]
-    
+
     #add the area as reported by the polygon shapefile as a convenience
     areas <- area(ctryPoly)
     
-    #we add the country code to ensure even a renamed file is identifiable
-    #repeat ctryCode for each row in the polygon. equiv of picking layer0
-    ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
-  
-    #combine the columns
-    ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
+    if (length(ctryPolyAdmLevels) > 0)
+    {
+      #the number of admin levels
+      nLyrs <- length(ctryPolyAdmLevels)
+      
+      #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
+      #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
+      #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
+      #nums <- c(paste(1:nLyrs,1:nLyrs))
+      
+      #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+      
+      #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
+      
+      ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
+      
+      #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
+      ctryNlDataDF <- as.data.frame(ctryPoly@data[,eval(ctryPolyAdmCols)])
+      
+      #add the area as reported by the polygon shapefile as a convenience
+      areas <- area(ctryPoly)
+      
+      #we add the country code to ensure even a renamed file is identifiable
+      #repeat ctryCode for each row in the polygon. equiv of picking layer0
+      ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
     
-    #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
-    ctryPolyColNames <- ctryPolyAdmLevels
-    
-    #add the country_code and area columns to the dataframe
-    ctryPolyColNames <- c("country", ctryPolyColNames, "area_sq_km")
-    
-    names(ctryNlDataDF) <- ctryPolyColNames
+      #combine the columns
+      ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
+      
+      #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+      ctryPolyColNames <- ctryPolyAdmLevels
+      
+      #add the country_code and area columns to the dataframe
+      ctryPolyColNames <- c("country", ctryPolyColNames, "area_sq_km")
+      
+      names(ctryNlDataDF) <- ctryPolyColNames
+    } else
+    {
+      ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
+    }
   }
 
   if(!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
@@ -852,7 +870,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     
     for (tile in tileList)
     {
-      rastFilename <- getNtLtsTifLcllNameVIIRS(nlYear, nlMonth, tileName2Idx(tile))
+      rastFilename <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile))
   
       rastTile <- raster(rastFilename)
       
@@ -908,11 +926,13 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     message("Extracting data from polygon " , i, " ", base::date())
     dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
     
-    message("Calculating the mean of polygon ", i, " ", base::date())
+    message("Calculating the NL sum of polygon ", i, " ", base::date())
     
     #calculate and return the mean of all the pixels
     data.frame(mean = sum(dat, na.rm=TRUE))
   }
+  
+  gc()
   
   #merge the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(ctryNlDataDF, sumAvgRad)
@@ -1005,16 +1025,17 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
   
   admLevels <- NULL
   
-  for (lyrNum in 1:numLayers)
-  {
-    lyrPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLyrName(ctryCode, lyrNum))
-    
-    lvlTypeName <- paste0("TYPE_",lyrNum)
-    
-    lvlName <- unlist(lyrPoly@data[1,eval(lvlTypeName)])
-    
-    admLevels <- c(admLevels, as.character(lvlName))
-  }
+  if (numLayers > 0)
+    for (lyrNum in 1:numLayers)
+    {
+      lyrPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLyrName(ctryCode, lyrNum))
+      
+      lvlTypeName <- paste0("TYPE_",lyrNum)
+      
+      lvlName <- unlist(lyrPoly@data[1,eval(lvlTypeName)])
+      
+      admLevels <- c(admLevels, as.character(lvlName))
+    }
   
   #admLevels <- as.data.frame(cbind(1:numLayers, admLevels))
   
@@ -1047,7 +1068,7 @@ dnldCtryPoly <- function(ctryCode)
   }
   else
   {
-    message("Polygon already exists")
+    message("Polygon ", ctryCode, " already exists")
   }
   
   return (!is.null(result))
@@ -1145,6 +1166,10 @@ getNlYearMonthTilesVIIRS <- function(nlYearMonth, tileList)
 {
   success <- TRUE
   
+  #registerDoParallel(cores=2)
+
+  #foreach(tile = iter(tileList)) %dopar%(
+  
   #ensure we have all required tiles
   for (tile in tileList)
   { 
@@ -1236,6 +1261,9 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
         ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
         
         tileList <- c(tileList, setdiff(ctryTiles, tileList))
+        
+        if (length(tileList) == nrow(nlTiles))
+          break
       }
     
       if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
@@ -1257,7 +1285,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
         nlMonth <- substr(nlYearMonth, 5, 6)
         
         #del the tif file
-        file.remove(getNtLtsTifLcllNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
+        file.remove(getNtLtsTifLclNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
         
         #del the zip file
         file.remove(getNtLtsZipLcllNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
