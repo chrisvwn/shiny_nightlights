@@ -14,7 +14,11 @@ filenames<-list.files(dirNlData)
 
 ctryCodesWithData <- substr(filenames, 1, 3)
 
-allCtryCodes <- getAllNlCtryCodes()
+ctryCodeNames <- lapply(ctryCodesWithData, function(x) ctryCodeToNAME(x))
+
+ctryCodesWithData <- setNames(ctryCodesWithData, ctryCodeNames)
+
+#allCtryCodes <- getAllNlCtryCodes()
 
 shinyUI(
   fluidPage(
@@ -25,9 +29,10 @@ shinyUI(
     # Sidebar with a slider input for number of bins
     sidebarLayout(
       sidebarPanel(
-        checkboxGroupInput(inputId = "countries",
+        selectizeInput(inputId = "countries",
                     label = "Select Country(ies)",
-                    choices = ctryCodesWithData
+                    choices = ctryCodesWithData,
+                    multiple = TRUE
                     ),
         
         uiOutput("intraCountry"),
@@ -37,7 +42,26 @@ shinyUI(
                      choices = c("OLS", "VIIRS"),
                      selected = "VIIRS",
                      inline = T),
-        uiOutput("message")
+        
+        checkboxInput(inputId = "norm_area",
+                      label = "Normalize by Area",
+                      value = FALSE
+                      ),
+        
+        radioButtons(inputId = "graphtype",
+                     label = "Graph type",
+                     choices = c("boxplot", "histogram", "line"),
+                     selected = "VIIRS",
+                     inline = T),
+        
+        sliderInput(inputId = "time",
+                    label = "Time",
+                    min = 2012,
+                    max = 2016,
+                    timeFormat = "%Y-%m-%d",
+                    step = 1,
+                    value = c(2012,2016)
+                    )
         
         # uiOutput(output$interCountry)
       ),

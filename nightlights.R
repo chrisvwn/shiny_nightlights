@@ -14,12 +14,16 @@ require(cleangeo)
 library(foreach) #Enables for-each statements to be used for parallel processing
 library(doParallel) #Allows for parallel processing using multiple cores
 
+require(compiler)
+
+enableJIT(3)
+
 
 ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
 #6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
 #creates columns as strings. createSpPolysDF converts relevant columns to numeric
-nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W","75N060W","75N060E","00N180W","00N060W","00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)), stringsAsFactors=F)
+nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W", "75N060W", "75N060E", "00N180W", "00N060W", "00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)), stringsAsFactors=F)
 
 #projection system to use
 #can we use only one or does it depend on the shapefile loaded?
@@ -377,6 +381,7 @@ masq_viirs <- function(shp, rast, i)
   
   #Raster extract
   outer <- crop(rast, extent) #extract raster by polygon extent
+  
   #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
   inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
   
@@ -384,6 +389,7 @@ masq_viirs <- function(shp, rast, i)
   #Specify coordinates
   coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
                         seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
+  
   #Convert raster into vector
   data <- as.vector(inner)
   
@@ -391,6 +397,7 @@ masq_viirs <- function(shp, rast, i)
   
   #data <- data[!is.na(data)] #keep non-NA values only ... shall this affect mask values?
   #data[is.na(data)] <- 0
+  
   data[data < 0] <- 0 #any negative values are either recording problems or error values as per: 
   
   return(data) 
@@ -779,12 +786,6 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
 {
   message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
   
-  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
-  
-  ctryExtent <- extent(ctryPoly)
-  
-  projection(ctryPoly) <- CRS(wgs84)
-  
   nlYear <- substr(nlYearMonth, 1, 4)
   
   nlMonth <- substr(nlYearMonth, 5, 6)
@@ -805,8 +806,21 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
       
       return(-1)
     }
+    
+    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+    
+    ctryExtent <- extent(ctryPoly)
+    
+    projection(ctryPoly) <- CRS(wgs84)
+    
   } else
   {
+    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+    
+    ctryExtent <- extent(ctryPoly)
+    
+    projection(ctryPoly) <- CRS(wgs84)
+    
     #get the list of admin levels in the polygon shapefile
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
 
@@ -849,7 +863,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
       ctryPolyColNames <- ctryPolyAdmLevels
       
       #add the country_code and area columns to the dataframe
-      ctryPolyColNames <- c("country", ctryPolyColNames, "area_sq_km")
+      ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
       
       names(ctryNlDataDF) <- ctryPolyColNames
     } else
@@ -868,6 +882,9 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     
     ctryRastCropped <- NULL
     
+    #attempt to improve speed. no improvement noticed
+    #ctryPoly <- readOGR(getPolyFnamePath(ctryCode), paste0(ctryCode,"_adm0"))
+    
     for (tile in tileList)
     {
       rastFilename <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile))
@@ -878,11 +895,15 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     
       message("Cropping the rasters ", base::date())
   
+      #extTempCrop <- crop(rastTile, ctryExtent)
+      
       tempCrop <- crop(rastTile, ctryPoly)
       
       if(is.null(ctryRastCropped))
       {
         ctryRastCropped <- tempCrop
+        
+        #ctryExtCropped <- extTempCrop
       }
       else
       {
@@ -891,10 +912,19 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
         ctryRastCropped <- NULL
         
         ctryRastCropped <- merge(ctryRastMerged, tempCrop)
+        
+        #ctryExtMerged <- ctryExtCropped
+        
+        #ctryExtCropped <- NULL
+        
+        #ctryExtCropped <- merge(ctryExtMerged, tempCrop)
+        
       }
       
       rm(tempCrop)
     }
+    
+    rm(rastTile)
     
     gc()
   
@@ -917,7 +947,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     crs(ctryRastCropped) <- CRS(wgs84)
   }
   
-  registerDoParallel(cores=2)
+  registerDoParallel(cores=7)
   
   message("Begin extracting the data from the merged raster ", base::date())
   
@@ -1032,7 +1062,17 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
       
       lvlTypeName <- paste0("TYPE_",lyrNum)
       
-      lvlName <- unlist(lyrPoly@data[1,eval(lvlTypeName)])
+      lvlName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeName)]))
+      
+      lvlTypeEngName <- paste0("ENGTYPE_",lyrNum)
+      
+      lvlEngName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeEngName)]))
+      
+      if ((!is.na(lvlName) && !is.na(lvlEngName)) && lvlName != lvlEngName)
+        lvlName <- paste0(lvlName, " (", lvlEngName, ")")
+      
+      if (is.na(lvlName))
+        lvlName <- "Unknown"
       
       admLevels <- c(admLevels, as.character(lvlName))
     }
@@ -1097,6 +1137,15 @@ getAllNlYears <- function(nlType = "VIIRS")
 
 getAllNlCtryCodes <- function()
 {
+  
+#   tooLongProcessing <- c("RUS", "BRA", "US")
+#   
+#   noPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
+#   
+#   errorProcessing <- c("ATF", "NZL", "CAN")
+#   
+#   omitCountries <- unlist(c(tooLongProcessing, noPolygon, errorProcessing))
+  
   #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
   #select ctryCodes from the map data itself
   map <- rworldmap::getMap()
@@ -1104,7 +1153,11 @@ getAllNlCtryCodes <- function()
   #some polygons have problems. use cleangeo package to rectify
   map <- clgeo_Clean(map)
   
-  return (as.character(map@data$ISO3))
+  ctryCodes <- as.character(map@data$ISO3)
+  
+#  ctryCodes <- ctryCodes[-which(ctryCodes %in% omitCountries)]
+
+  return (ctryCodes)
 }
 
 getNlType <- function(nlYear)
@@ -1285,10 +1338,10 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
         nlMonth <- substr(nlYearMonth, 5, 6)
         
         #del the tif file
-        file.remove(getNtLtsTifLclNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
+        file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
         
         #del the zip file
-        file.remove(getNtLtsZipLcllNameVIIRS(nlyear, nlMonth, tileName2Idx(tile)))
+        file.remove(getNtLtsZipLcllNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
       }
     }
     else if (nlType == "OLS")
