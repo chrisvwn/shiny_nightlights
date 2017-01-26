@@ -16,7 +16,7 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(3)
+enableJIT(0)
 
 
 ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
@@ -142,11 +142,14 @@ mapAllCtryPolyToTiles <- function()
   ctryCodes <- getAllNlCtryCodes()
   
   map <- rworldmap::getMap()
+  
   map <- clgeo_Clean(map)
+  
+  ctryCodeIdx <- which(map@data$ISO3 %in% ctryCodes)
   
   ctryCodeTiles <- NULL
   
-  for (i in 1:length(ctryCodes))
+  for (i in ctryCodeIdx)
   {
     ctryPolys <- map@polygons[[i]]
     
@@ -160,7 +163,7 @@ mapAllCtryPolyToTiles <- function()
     ctryCodeTiles <- rbind(ctryCodeTiles, list(tilesPolygonIntersect(ctrySpPolys)))
   }
 
-  ctryCodeTiles <- as.data.frame(cbind(code = as.character(map@data$ISO3), tiles = ctryCodeTiles))
+  ctryCodeTiles <- as.data.frame(cbind(code = as.character(ctryCodes), tiles = ctryCodeTiles))
   
   names(ctryCodeTiles) <- c("code", "tiles")
   
@@ -322,7 +325,8 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   {
     ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
     
-    rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalNameVIIRS, mode = "wb", method = "wget", extra = "-c")
+    #rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalNameVIIRS, mode = "wb", method = "wget", extra = "-c")
+    rsltDnld <- system(paste0("aria2c -c -x2 ", ntLtsFileUrl, " -o ", ntLtsZipLocalNameVIIRS))
   }
   else
   {
@@ -792,7 +796,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   
   if (existsCtryNlDataFile(ctryCode))
   {
-    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode),header = TRUE,sep = ",")
+    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode), header = TRUE, sep = ",")
     
     existingDataCols <- names(ctryNlDataDF)
     
@@ -1138,13 +1142,13 @@ getAllNlYears <- function(nlType = "VIIRS")
 getAllNlCtryCodes <- function()
 {
   
-#   tooLongProcessing <- c("RUS", "BRA", "US")
-#   
-#   noPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
-#   
-#   errorProcessing <- c("ATF", "NZL", "CAN")
-#   
-#   omitCountries <- unlist(c(tooLongProcessing, noPolygon, errorProcessing))
+  tooLongProcessing <- c("RUS", "BRA", "US", "KIR")
+  
+  noPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
+  
+  errorProcessing <- c("ATF", "NZL", "CAN", "KAS", "MUS")
+  
+  omitCountries <- unlist(c(tooLongProcessing, noPolygon, errorProcessing))
   
   #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
   #select ctryCodes from the map data itself
@@ -1155,7 +1159,7 @@ getAllNlCtryCodes <- function()
   
   ctryCodes <- as.character(map@data$ISO3)
   
-#  ctryCodes <- ctryCodes[-which(ctryCodes %in% omitCountries)]
+  ctryCodes <- ctryCodes[-which(ctryCodes %in% omitCountries)]
 
   return (ctryCodes)
 }
@@ -1300,6 +1304,8 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
   #for all nlYearMonths check if the tiles exist else download
   for (nlYearMonth in nlYearMonths)
   {
+    message("Checking tiles required for ", nlYearMonth)
+    
     nlType <- getNlType(substr(nlYearMonth,1,4))
 
     #init the list of tiles to be downloaded
@@ -1308,9 +1314,22 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
     #determine tiles to download
     if (nlType == "VIIRS")
     {
+      ctryTiles <- NULL
+      
+      tileList <- NULL
+      
       #For each country
       for (ctryCode in unique(ctryCodes))
       {
+        if (file.exists(getCtryNlDataFnamePath(ctryCode)))
+        {
+          dt <- read.csv(getCtryNlDataFnamePath(ctryCode), nrow=1, header=TRUE)
+          
+          hd <- names(dt)
+          
+          if (length(grep(paste0("VIIRS_", nlYearMonth), hd))>0)
+            next
+        }
         ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
         
         tileList <- c(tileList, setdiff(ctryTiles, tileList))
@@ -1319,6 +1338,9 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
           break
       }
     
+      if (length(tileList) == 0)
+        next
+
       if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
       {
         print("Something went wrong with the tile downloads. Aborting ...")
