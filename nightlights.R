@@ -21,7 +21,7 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(0)
+enableJIT(3)
 
 rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
@@ -981,7 +981,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
   {
     message("Extracting data from polygon " , i, " ", base::date())
-    dat <- masq_viirs(ctryPoly, rastFilename, i)
+    dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
     
     message("Calculating the NL sum of polygon ", i, " ", base::date())
     
