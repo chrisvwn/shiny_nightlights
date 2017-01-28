@@ -1,9 +1,14 @@
+if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+
+pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler)
+
 require(readr)
 require(dplyr)
 
 require(lubridate)
 
 require(rgdal)
+require(gdalUtils)
 require(raster)
 
 require(sp)
@@ -18,6 +23,7 @@ require(compiler)
 
 enableJIT(0)
 
+rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
 ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
@@ -375,7 +381,7 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   return (rsltDnld == 0)
 }
 
-masq_viirs <- function(shp, rast, i)
+masq_viirs <- function(shp,rast,i)
 {
   #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
   #slightly modified to use faster masking method by converting the raster to vector
@@ -385,15 +391,15 @@ masq_viirs <- function(shp, rast, i)
   
   #Raster extract
   outer <- crop(rast, extent) #extract raster by polygon extent
-  
+
   #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
+  
   inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
   
   #Convert cropped raster into a vector
   #Specify coordinates
   coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
                         seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
-  
   #Convert raster into vector
   data <- as.vector(inner)
   
@@ -401,7 +407,6 @@ masq_viirs <- function(shp, rast, i)
   
   #data <- data[!is.na(data)] #keep non-NA values only ... shall this affect mask values?
   #data[is.na(data)] <- 0
-  
   data[data < 0] <- 0 #any negative values are either recording problems or error values as per: 
   
   return(data) 
@@ -778,7 +783,9 @@ processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
   #getNtLtsViirs()
   
   for (nlCtryCode in nlCtryCodes)
+  {
     processNLCountryVIIRS(ctryCode, nlYearMonth)
+  }
 }
 
 ctryShpLyrName2Num <- function(layerName)
@@ -917,6 +924,8 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
         
         ctryRastCropped <- merge(ctryRastMerged, tempCrop)
         
+        rm(ctryRastMerged)
+        
         #ctryExtMerged <- ctryExtCropped
         
         #ctryExtCropped <- NULL
@@ -934,13 +943,25 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   
     message("Masking the merged raster ", base::date())
     
-    ctryRastCropped <- rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
+    #ctryRastCropped <- rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
+    
+    rstTmp <- paste0(tempfile(), ".tif")
+
+    writeRaster(ctryRastCropped, rstTmp)
+    
+    gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), crop_to_cutline = TRUE)
+    
+    gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
     
     message("Deleting the component rasters ", base::date())
     
+    file.remove(rstTmp)
+    file.remove("output_file.vrt")
+    
     message("Writing the merged raster to disk ", base::date())
     
-    writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
+    #writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
+    ctryRastCropped <- raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
   }
   else
   {
@@ -951,6 +972,8 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     crs(ctryRastCropped) <- CRS(wgs84)
   }
   
+  rastFilename <- getCtryRasterOutputFname(ctryCode, nlYearMonth)
+  
   registerDoParallel(cores=7)
   
   message("Begin extracting the data from the merged raster ", base::date())
@@ -958,14 +981,14 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
   {
     message("Extracting data from polygon " , i, " ", base::date())
-    dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
+    dat <- masq_viirs(ctryPoly, rastFilename, i)
     
     message("Calculating the NL sum of polygon ", i, " ", base::date())
     
     #calculate and return the mean of all the pixels
     data.frame(mean = sum(dat, na.rm=TRUE))
   }
-  
+
   gc()
   
   #merge the calculated means for the polygon as a new column
@@ -991,6 +1014,10 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   
   message("COMPLETE. Writing data to disk")
   write.table(ctryNlDataDF, getCtryNlDataFnamePath(ctryCode), row.names= F, sep = ",")
+  
+  rm (ctryRastCropped)
+  
+  removeTmpFiles(h = 0)
 }
 
 getCtryRasterOutputFname <- function(ctryCode, nlYearMonth)
@@ -1142,7 +1169,7 @@ getAllNlYears <- function(nlType = "VIIRS")
 getAllNlCtryCodes <- function()
 {
   
-  tooLongProcessing <- c("RUS", "BRA", "US", "KIR")
+  tooLongProcessing <- c("RUS", "BRA", "USA", "KIR")
   
   noPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
   
@@ -1327,7 +1354,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
           
           hd <- names(dt)
           
-          if (length(grep(paste0("VIIRS_", nlYearMonth), hd))>0)
+          if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
             next
         }
         ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
