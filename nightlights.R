@@ -1,6 +1,6 @@
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler)
+pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils)
 
 require(readr)
 require(dplyr)
@@ -27,10 +27,6 @@ rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
 ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
-#6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
-#creates columns as strings. createSpPolysDF converts relevant columns to numeric
-nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W", "75N060W", "75N060E", "00N180W", "00N060W", "00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)), stringsAsFactors=F)
-
 #projection system to use
 #can we use only one or does it depend on the shapefile loaded?
 wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
@@ -52,8 +48,43 @@ dirNlData <- "./data"
 
 shpTopLyrName <- "adm0"
 
+#cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdalwarp" or "rasterize" gdal is usually faster but requires gdal to be installed on the system
+cropMaskMethod <- "rasterize" 
+
+omitCountries <- "all"
+
+getNlTiles <- function()
+{
+  #6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
+  #creates columns as strings. createSpPolysDF converts relevant columns to numeric
+  nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W", "75N060W", "75N060E", "00N180W", "00N060W", "00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)), stringsAsFactors=F)
+  
+  return (nlTiles)
+}
+
+existsNlTiles <- function()
+{
+  if (exists("nlTiles") && class(nlTiles) == "data.frame")
+    return (TRUE)
+  else
+    return (FALSE)
+}
+
+existsTSpPolysDFs <- function()
+{
+  if (exists("tSpPolysDFs") && class(tSpPolysDFs) == "SpatialPolygonsDataFrame")
+    return(TRUE)
+  else
+    return(FALSE)
+}
+
 createNlTilesSpPolysDF <- function()
 {
+  if (!existsNlTiles())
+  {
+    nlTiles <- getNlTiles()
+  }
+  
   #convert nlTiles min/max columns to numeric
   for (cIdx in grep("id|min|max", names(nlTiles))) nlTiles[,cIdx] <- as.numeric(as.character(nlTiles[, cIdx]))
   
@@ -142,10 +173,10 @@ plotCtryWithTiles <- function(idx)
   
 }
 
-mapAllCtryPolyToTiles <- function()
+mapAllCtryPolyToTiles <- function(omitCountries="none")
 {
   #get list of all country codes
-  ctryCodes <- getAllNlCtryCodes()
+  ctryCodes <- getAllNlCtryCodes(omitCountries)
   
   map <- rworldmap::getMap()
   
@@ -202,7 +233,7 @@ getTilesCtryIntersect <- function(ctryCode)
   
   crs(ctrySpPolys) <- CRS(wgs84)
   
-  ctrySpPolysDF <<- as(ctrySpPolys, "SpatialPolygonsDataFrame")
+  ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
   
   ctryCodeTiles <- tilesPolygonIntersect(ctrySpPolys)
   
@@ -214,11 +245,20 @@ getTilesCtryIntersect <- function(ctryCode)
 
 tileName2Idx <- function(tileName)
 {
+  if (missing(tileName))
+    stop("Required parameter tileName")
+  
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
+  
   return (which(nlTiles$name == tileName))
 }
 
 tileIdx2Name <- function(tileNum)
 {
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
+  
   return (nlTiles[tileNum, "name"])
 }
 
@@ -228,6 +268,14 @@ tilesPolygonIntersect <- function(shp_polygon)
   #that it intersects with
   #Input: a Spatial Polygon e.g. from a loaded shapefile
   #Output: a character vector of tile names as given in the nlTiles dataframe
+  
+  if (!existsTSpPolysDFs())
+  {
+    tSpPolysDFs <- createNlTilesSpPolysDF()
+  }
+  
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
   
   #init list to hold tile indices
   tileIdx <- NULL
@@ -260,6 +308,9 @@ getNtLts <- function(inputYear)
 
 getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
 {
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
+  
   inYear <- as.character(inYear)
    
   nMonth <- as.character(inMonth)
@@ -310,18 +361,142 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   return (ntLtsPageUrl)
 }
 
-getNtLtsZipLcllNameVIIRS <- function(nlYear, nlMonth, tileNum)
+
+validNlYearNum <- function(yearNum, nlType)
 {
-  return (paste0(dirRasterVIIRS, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz"))
+  if (missing(yearNum))
+    stop("Missing parameter yearNum")
+  
+  if (missing(nlType) || (nlType != "OLS" && nlType != "VIIRS"))
+    stop("Missing or invalid required parameter nlType")
+  
+  yearNum <- as.character(yearNum)
+  
+  if (class(yearNum) != "character" || yearNum =="" || length(grep("[^[:digit:]]", yearNum) > 0))
+    return(FALSE)
+  
+  nlY <- as.numeric(yearNum)
+  
+  if (nlType == "OLS")
+  {
+    if (nlY > 1994 && nlY < 2013)
+      return(TRUE)
+    else
+      return(FALSE)
+  }
+  else
+  if (nlType=="VIIRS")
+  {
+    if (nlY >= 2012 && nlY <= lubridate::year(lubridate::now()))
+      return(TRUE)
+    else
+      return(FALSE)
+  }
+  else
+    return (FALSE)
 }
 
-getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum)
+validNlMonthNum <- function(monthNum, nlType="VIIRS")
 {
-  return (paste0(dirRasterVIIRS, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tif"))
+  if (missing(monthNum))
+    stop("Missing required parameter monthNum")
+
+  monthNum <- as.character(monthNum)
+  nlType <- as.character(nlType)
+
+  if (nlType!="VIIRS")
+    stop("nlMonth only valid for nlType=\"VIIRS\"")
+    
+  if (class(monthNum) != "character" || monthNum =="" || length(grep("[^[:digit:]]", monthNum) > 0))
+    return(FALSE)
+ 
+  nlM <- as.numeric(monthNum)
+  
+  if (nlM >= 1 && nlM <= 12)
+    return(TRUE)
+  else
+    return(FALSE)
+}
+
+validNlTileNum <- function(nlTileNum, nlType)
+{
+  nlTileNum <- as.character(nlTileNum)
+  
+  if (missing(nlTileNum))
+    stop("Missing parameter nlTileNum")
+  
+  if (class(nlTileNum) != "character" || nlTileNum =="" || length(grep("[^[:digit:]]", nlTileNum) > 0))
+    return(FALSE)
+  
+  if(!exists("nlTiles"))
+    nlTiles <- getNlTiles()
+  
+  nlT <- as.numeric(nlTileNum)
+  
+  if (nlT >= 1 && nlT <= length(nlTiles))
+    return(TRUE)
+  else
+    return(FALSE)
+}
+
+getNtLtsZipLcllNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
+{
+  nlType <- "VIIRS"
+  
+  if (missing(nlYear) || !validNlYearNum(nlYear, nlType))
+    stop("Missing or invalid required parameter nlYear")
+  
+  if (missing(nlMonth) || !validNlMonthNum(nlMonth))
+    stop("Missing or invalid required parameter nlMonth")
+  
+  if (missing(tileNum) || !validNlTileNum(tileNum))
+    stop("Missing or invalid required parameter tileNum")
+
+  if (missing(dir) && !dir.exists(dir))
+  {
+    message("Invalid directory ", dir ,". Using default directory \"", getwd(), "/tiles\"")
+    
+    if (!dir.exists(dir))
+    {
+      message("creating raster tiles directory")
+      
+      dir.create("tiles")
+    }
+  }
+
+  return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz"))
+}
+
+getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
+{
+  if (missing(nlYear))
+    stop("Missing nlYear")
+  
+  if (missing(nlMonth))
+    stop("missing nlMonth")
+  
+  if (missing(tileNum))
+    stop("Missing tileNum")
+
+  if (missing(dir) && !dir.exists(dir))
+  {
+    message("Invalid directory ", dir ,". Using default directory \"", getwd(), "/tiles\"")
+    
+    if (!dir.exists(dir))
+    {
+      message("creating raster tiles directory")
+      
+      dir.create("tiles")
+    }
+  }
+  
+  return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tif"))
 }
 
 getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
 {
+  nlType <- "VIIRS"
+  
   rsltDnld <- NA
   
   ntLtsZipLocalNameVIIRS <- getNtLtsZipLcllNameVIIRS(nlYear, nlMonth, tileNum)
@@ -398,8 +573,9 @@ masq_viirs <- function(shp,rast,i)
   
   #Convert cropped raster into a vector
   #Specify coordinates
-  coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
-                        seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
+  #coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
+  #                      seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
+  
   #Convert raster into vector
   data <- as.vector(inner)
   
@@ -793,8 +969,17 @@ ctryShpLyrName2Num <- function(layerName)
   return(as.numeric(gsub("[^[:digit:]]", "", layerName)))
 }
 
-processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
+processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasterize")
 {
+  if(!exists("ctryCode") || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
+    stop("ctryCode missing")
+  
+  if(!exists("nlYearMonth") || class(nlYearMonth) != "character" || is.null(nlYearMonth) || nlYearMonth == "")
+    stop("nlYearMonth missing")
+  
+  if (!exists("cropMaskMethod") || class(cropMaskMethod) != "character" || is.null(cropMaskMethod) || nlYearMonth == "")
+    cropMaskMethod <- "rasterize"
+  
   message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
   
   nlYear <- substr(nlYearMonth, 1, 4)
@@ -943,25 +1128,47 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   
     message("Masking the merged raster ", base::date())
     
-    #ctryRastCropped <- rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
-    
-    rstTmp <- paste0(tempfile(), ".tif")
-
-    writeRaster(ctryRastCropped, rstTmp)
-    
-    gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), crop_to_cutline = TRUE)
-    
-    gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
-    
-    message("Deleting the component rasters ", base::date())
-    
-    file.remove(rstTmp)
-    file.remove("output_file.vrt")
-    
-    message("Writing the merged raster to disk ", base::date())
-    
-    #writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
-    ctryRastCropped <- raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
+    if (cropMaskMethod == "rasterize")
+    {
+      #RASTERIZE
+      message("Crop and mask using rasterize ", base::date())
+      ctryRastCropped <- rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
+      
+      message("Writing the merged raster to disk ", base::date())
+      
+      writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
+      message("Crop and mask using rasterize. Done", base::date())
+    }
+    else if (cropMaskMethod == "gdalwarp")
+    {
+      message("Crop and mask using gdalwarp", base::date())
+      #GDALWARP
+      rstTmp <- paste0(tempfile(), ".tif")
+  
+      message("Writing merged raster to disk")
+      writeRaster(ctryRastCropped, rstTmp)
+      
+      if (file.exists("output_file.vrt"))
+        file.remove("output_file.vrt")
+      
+      message("gdalwarp ",base::date())
+      
+      #gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), crop_to_cutline = TRUE, multi=TRUE, wo="NUM_THREADS=ALL_CPUS GDALWARP_IGNORE_BAD_CUTLINE=YES")
+      
+      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= "adm0", crop_to_cutline = TRUE, multi=TRUE, wo="NUM_THREADS=ALL_CPUS")
+      
+      message("gdal_translate ", base::date())
+      gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
+      
+      message("Deleting the component rasters ", base::date())
+      
+      file.remove(rstTmp)
+      file.remove("output_file.vrt")
+      
+      ctryRastCropped <- raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
+      #GDALWARP
+      message("Done", base::date())
+    }
   }
   else
   {
@@ -972,9 +1179,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
     crs(ctryRastCropped) <- CRS(wgs84)
   }
   
-  rastFilename <- getCtryRasterOutputFname(ctryCode, nlYearMonth)
-  
-  registerDoParallel(cores=7)
+  registerDoParallel(cores=detectCores()-1)
   
   message("Begin extracting the data from the merged raster ", base::date())
   
@@ -982,6 +1187,8 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth)
   {
     message("Extracting data from polygon " , i, " ", base::date())
     dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
+    
+    removeTmpFiles(h=0)
     
     message("Calculating the NL sum of polygon ", i, " ", base::date())
     
@@ -1166,16 +1373,32 @@ getAllNlYears <- function(nlType = "VIIRS")
     return()
 }
 
-getAllNlCtryCodes <- function()
+getAllNlCtryCodes <- function(omit="none")
 {
+  #omit is a vector and can contain "long", "missing" or "error"
+  #if omit is "none" do not exclude any countries
+  #if omit is "all", empty or NA set to default: omit=c("long", "missing", "error")
   
-  tooLongProcessing <- c("RUS", "BRA", "USA", "KIR")
+  omit <- tolower(omit)
   
-  noPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
+  if(omit != "none" && (omit == "all" || !(omit %in% c("long", "missing", "error")) || is.na(omit)))
+    omit <- c("long", "missing", "error")
+
+  tooLongProcessing <- ""
+  missingPolygon <- ""
+  errorProcessing <- ""
   
-  errorProcessing <- c("ATF", "NZL", "CAN", "KAS", "MUS")
+  if ("long" %in% omit)
+    tooLongProcessing <- c("RUS", "BRA", "USA", "KIR", "ATA", "FRA")
   
-  omitCountries <- unlist(c(tooLongProcessing, noPolygon, errorProcessing))
+  if ("missing" %in% omit)
+    missingPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
+  
+  if ("error" %in% omit)
+    errorProcessing <- c("ATF", "NZL", "CAN", "KAS", "MUS")
+  
+  
+  omitCountries <- unlist(c(tooLongProcessing, missingPolygon, errorProcessing))
   
   #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
   #select ctryCodes from the map data itself
@@ -1186,7 +1409,7 @@ getAllNlCtryCodes <- function()
   
   ctryCodes <- as.character(map@data$ISO3)
   
-  ctryCodes <- ctryCodes[-which(ctryCodes %in% omitCountries)]
+  ctryCodes <- subset(ctryCodes, !(ctryCodes %in% omitCountries))
 
   return (ctryCodes)
 }
@@ -1280,10 +1503,18 @@ getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
   }
 }
 
-getCtryCodeTileList <- function(ctryCode)
+existsCtryCodeTiles <- function()
 {
-  if (is.null(ctryCodeTiles))
-    ctryCodeTiles <<- mapAllCtryPolyToTiles()
+  return (exists("ctryCodeTiles") && class(ctryCodeTiles)=="data.frame" && !is.null(ctryCodeTiles))
+}
+
+getCtryCodeTileList <- function(ctryCode, omitCountries="none")
+{
+  if (missing(omitCountries))
+    omitCountries <- "none"
+  
+  if (!existsCtryCodeTiles())
+    ctryCodeTiles <- mapAllCtryPolyToTiles(omitCountries)
   
   ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
   
@@ -1299,6 +1530,9 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
   #TODO:
   #1. if years only given, infer months
   #2.verification & deduplication
+  
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
   
   if (is.null(nlYearMonths))
   {
@@ -1357,7 +1591,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
           if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
             next
         }
-        ctryTiles <- unlist(ctryCodeTiles[which(ctryCodeTiles$code == ctryCode), "tiles"])
+        ctryTiles <- getCtryCodeTileList(ctryCode)
         
         tileList <- c(tileList, setdiff(ctryTiles, tileList))
         
@@ -1378,7 +1612,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-        processNLCountryVIIRS(ctryCode, nlYearMonth)
+        processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = cropMaskMethod)
       }
       
       for (tile in tileList)
@@ -1434,9 +1668,11 @@ initNtLts <- function()
   if(!dir.exists(dirRasterOutput))
     dir.create(dirRasterOutput)
   
+  nlTiles <<- getNlTiles()
+  
   tSpPolysDFs <<- createNlTilesSpPolysDF()
   
-  ctryCodeTiles <<- mapAllCtryPolyToTiles()
+  ctryCodeTiles <<- mapAllCtryPolyToTiles(omitCountries = "all")
   #
 }
 
