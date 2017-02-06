@@ -56,6 +56,8 @@ dirRasterVIIRS <- "./tiles"
 
 dirRasterOutput <- "./outputrasters"
 
+dirZonals <- "./zonals"
+
 dirPolygon <- "./polygons"
 
 dirNlData <- "./data"
@@ -63,9 +65,9 @@ dirNlData <- "./data"
 shpTopLyrName <- "adm0"
 
 #cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdal" or "rast" gdal is usually faster but requires gdal to be installed on the system
-cropMaskMethod <- "rast" 
+cropMaskMethod <- "gdal" 
 
-extractMethod <- "rast"
+extractMethod <- "gdal"
 
 omitCountries <- "all"
 
@@ -1233,7 +1235,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
   if (extractMethod == "rast")
     sumAvgRad <- fnSumAvgRadRast(ctryPoly, ctryRastCropped)
   else if (extractMethod == "gdal")
-    sumAvgRad <- fnSumAvgRadGdal(ctryCode, nlYearMonth)
+    sumAvgRad <- fnSumAvgRadGdal(ctryCode, ctryPoly, nlYearMonth)
   
   #merge the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(ctryNlDataDF, sumAvgRad)
@@ -1724,6 +1726,9 @@ initNtLts <- function()
   if(!dir.exists(dirRasterOutput))
     dir.create(dirRasterOutput)
   
+  if(!dir.exists(dirZonals))
+    dir.create(dirZonals)
+  
   nlTiles <<- getNlTiles()
   
   tSpPolysDFs <<- createNlTilesSpPolysDF()
@@ -1797,37 +1802,44 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
   #stat: function to summary path.in.r values ("mean", "sum"...)
   
   # 1/ Rasterize using GDAL
-  
+
   #Initiate parameter
   r<-stack(path.in.r)
   
-  ext<-extent(r)
-  ext<-paste(ext[1], ext[3], ext[2], ext[4])
+  if (!file.exists(path.out.r))
+  {
+    message("Zonal file ", path.out.r, " doesn't exist. Creating")
+
+    ext<-extent(r)
+    ext<-paste(ext[1], ext[3], ext[2], ext[4])
+    
+    res<-paste(res(r)[1], res(r)[2])
+    
+    lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
+    lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
+    
+    #Gdal_rasterize
+    message("Creating zonal raster")
+    command<-'gdal_rasterize'
+    command<-paste(command, "--config GDAL_CACHEMAX 2000") #Speed-up with more cache (avice: max 1/3 of your total RAM)
+    command<-paste(command, "-l", lowestLyrName)
+    #command<-paste(command, "-where", paste0(lowestIDCol, "=", i))
+    command<-paste(command, "-a", zone.attribute) #Identifies an attribute field on the features to be used for a burn in value. The value will be burned into all output bands.
+    command<-paste(command, "-te", as.character(ext)) #(GDAL >= 1.8.0) set georeferenced extents. The values must be expressed in georeferenced units. If not specified, the extent of the output file will be the extent of the vector layers.
+    command<-paste(command, "-tr", res) #(GDAL >= 1.8.0) set target resolution. The values must be expressed in georeferenced units. Both must be positive values.
+    #command<-paste(command, "-a_nodata", 0)
+    command<-paste(command, path.in.shp)
+    command<-paste(command, "temprast.tif")
+    
+    system(command)
+    
+    message("Compressing zonal raster")
+    gdal_translate(co = "compress=LZW", src_dataset = "temprast.tif", dst_dataset = path.out.r)
+    
+    file.remove("temprast.tif")
+  }
   
-  res<-paste(res(r)[1], res(r)[2])
-  
-  lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
-  lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
-  
-  #Gdal_rasterize
-  message("Creating zonal raster")
-  command<-'gdal_rasterize'
-  command<-paste(command, "--config GDAL_CACHEMAX 2000") #Speed-up with more cache (avice: max 1/3 of your total RAM)
-  command<-paste(command, "-l", lowestLyrName)
-  #command<-paste(command, "-where", paste0(lowestIDCol, "=", i))
-  command<-paste(command, "-a", zone.attribute) #Identifies an attribute field on the features to be used for a burn in value. The value will be burned into all output bands.
-  command<-paste(command, "-te", as.character(ext)) #(GDAL >= 1.8.0) set georeferenced extents. The values must be expressed in georeferenced units. If not specified, the extent of the output file will be the extent of the vector layers.
-  command<-paste(command, "-tr", res) #(GDAL >= 1.8.0) set target resolution. The values must be expressed in georeferenced units. Both must be positive values.
-  #command<-paste(command, "-a_nodata", 0)
-  command<-paste(command, path.in.shp)
-  command<-paste(command, "temprast.tif")
-  
-  system(command)
-  
-  message("Compressing zonal raster")
-  gdal_translate(co = "compress=LZW", src_dataset = "temprast.tif", dst_dataset = path.out.r)
-  
-  file.remove("temprast.tif")
+  message("Zonal file ", path.out.r, " found")
   
   # 2/ Zonal Stat using myZonal function
   zone<-raster(path.out.r)
@@ -1849,20 +1861,22 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
   #writeOGR(shp, path.out.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)), driver="ESRI Shapefile")
 }
 
-fnSumAvgRadGdal <- function(ctryCode, nlYearMonth)
+fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth)
 {
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
   path.in.shp<- getPolyFnamePath(ctryCode)
   path.in.r<- getCtryRasterOutputFname(ctryCode, nlYearMonth) #or path.in.r<-list.files("/home/, pattern=".tif$")
-  path.out.r<-"zone.tif"
+  path.out.r<- paste0(dirZonals, "/", ctryCode, "_zone.tif")
+  
   path.out.shp<-"zone_withZstat.shp"
+  
   zone.attribute<-paste0("ID_", gsub("[^[:digit:]]", "", getCtryShpLowestLyrName(ctryCode)))
   
   lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
   
   lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
  
-  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), lowestLyrName)
+  #ctryPoly <- readOGR(getPolyFnamePath(ctryCode), lowestLyrName)
   
   sumAvgRad <-ZonalPipe(ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat="sum")
   
