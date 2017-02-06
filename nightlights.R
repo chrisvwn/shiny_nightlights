@@ -50,10 +50,10 @@ dirNlData <- "./data"
 
 shpTopLyrName <- "adm0"
 
-#cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdalwarp" or "rasterize" gdal is usually faster but requires gdal to be installed on the system
-cropMaskMethod <- "rasterize" 
+#cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdal" or "rast" gdal is usually faster but requires gdal to be installed on the system
+cropMaskMethod <- "rast" 
 
-extractMethod <- "gdal"
+extractMethod <- "rast"
 
 omitCountries <- "all"
 
@@ -1054,7 +1054,7 @@ ctryShpLyrName2Num <- function(layerName)
   return(as.numeric(gsub("[^[:digit:]]", "", layerName)))
 }
 
-processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasterize")
+processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
 {
   if(missing(ctryCode) || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
     stop("ctryCode missing")
@@ -1063,7 +1063,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
     stop("nlYearMonth missing")
   
   if (missing(cropMaskMethod) || class(cropMaskMethod) != "character" || is.null(cropMaskMethod) || nlYearMonth == "")
-    cropMaskMethod <- "rasterize"
+    cropMaskMethod <- "rast"
   
   message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
   
@@ -1160,7 +1160,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
 
     message("Masking the merged raster ", base::date())
     
-    if (cropMaskMethod == "rasterize")
+    if (cropMaskMethod == "rast")
     {
     
       #RASTERIZE
@@ -1173,7 +1173,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
       
       message("Crop and mask using rasterize ... Done", base::date())
     }
-    else if (cropMaskMethod == "gdalwarp")
+    else if (cropMaskMethod == "gdal")
     {
       message("Crop and mask using gdalwarp ... ", base::date())
       
@@ -1656,17 +1656,17 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
         processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = cropMaskMethod)
       }
       
-      for (tile in tileList)
-      {
-        nlYear <- substr(nlYearMonth, 1, 4)
-        nlMonth <- substr(nlYearMonth, 5, 6)
-        
-        #del the tif file
-        file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
-        
-        #del the zip file
-        file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
-      }
+#       for (tile in tileList)
+#       {
+#         nlYear <- substr(nlYearMonth, 1, 4)
+#         nlMonth <- substr(nlYearMonth, 5, 6)
+#         
+#         #del the tif file
+#         file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+#         
+#         #del the zip file
+#         file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+#       }
     }
     else if (nlType == "OLS")
     {
@@ -1732,11 +1732,12 @@ library(raster)
 
 myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...) 
 { 
+  #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
+  
   fun <- match.fun(stat)
   
-  #vals1 <- ff(vmode="double",dim=c(x@nrows,x@ncols),filename=paste0("x.ffdata"))
-  
   vals <- NULL
+
   zones <- NULL
   
   blocks <- blockSize(x)
@@ -1746,8 +1747,13 @@ myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...)
   for (i in 1:blocks$n)
   {
     vals <- getValues(x, blocks$row[i], blocks$nrows[i])
+
+    vals[vals < 0] <- NA
+    
     zones <- round(getValues(z, blocks$row[i], blocks$nrows[i]), digits = digits)
+    
     rDT <- data.table(vals, z=zones)
+    
     setkey(rDT, z)
     
     result <- rbind(result, rDT[, lapply(.SD, fun, na.rm = TRUE), by=z])
