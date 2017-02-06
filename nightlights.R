@@ -1,3 +1,15 @@
+#TODO:
+#+ gzip all outputrasters and extract/delete tifs as required 
+#+ delete the 2nd tif in the tiles (avg_rad_...).
+#+ keep tiles gzipped until required. extract/delete as needed
+#+ modularize everything; processNtLts especially
+#+ give functions better names
+#+ validation of inputs, error handling
+#+ give temp files unique names to avoid problems in case of parallelization
+#+ settings and default settings list/DF
+
+#Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal crop to extent would be highly desirable though so seeking other gdal-based workarounds
+
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
 pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff)
@@ -23,7 +35,7 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(0)
+enableJIT(3)
 
 rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
@@ -199,9 +211,12 @@ mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries="none")
     ctryCodes <- getAllNlCtryCodes(omitCountries)
   }
 
-  map <- rworldmap::getMap()
+  if (!exists("map"))
+  {
+    map <- rworldmap::getMap()
   
-  map <- clgeo_Clean(sp = map)
+    map <- clgeo_Clean(sp = map)
+  }
   
   ctryCodeIdx <- which(map@data$ISO3 %in% ctryCodes)
   
@@ -1189,7 +1204,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
       
       message("gdalwarp ",base::date())
       
-      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wo="NUM_THREADS=ALL_CPUS")
+      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wm=2048, wo="NUM_THREADS=ALL_CPUS")
       
       message("gdal_translate ", base::date())
       gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
@@ -1413,13 +1428,13 @@ getAllNlCtryCodes <- function(omit="none")
   errorProcessing <- ""
   
   if ("long" %in% omit)
-    tooLongProcessing <- c("RUS", "BRA", "USA", "KIR", "ATA", "FRA")
+    tooLongProcessing <- "" #c("RUS", "BRA", "USA", "ATA", "FRA")
   
   if ("missing" %in% omit)
-    missingPolygon <- c("CYN", "GNQ", "KOS", "Ashm", "Gaza", "IOA")
+    missingPolygon <- c("CYN",  "KOS", "Ashm", "Gaza", "IOA", "KAS")
   
   if ("error" %in% omit)
-    errorProcessing <- c("ATF", "NZL", "CAN", "KAS", "MUS")
+    errorProcessing <- c("ATF", "GNQ", "KIR", "NZL", "CAN", "MUS")
   
   
   omitCountries <- unlist(c(tooLongProcessing, missingPolygon, errorProcessing))
@@ -1746,16 +1761,21 @@ myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...)
   
   for (i in 1:blocks$n)
   {
+    message("Block: ", i)
+    
+    message("Reading X")
     vals <- getValues(x, blocks$row[i], blocks$nrows[i])
 
     vals[vals < 0] <- NA
     
+    message("Reading Zones")
     zones <- round(getValues(z, blocks$row[i], blocks$nrows[i]), digits = digits)
     
     rDT <- data.table(vals, z=zones)
     
-    setkey(rDT, z)
+    #setkey(rDT, z)
     
+    message("Calculating partial ", stat)
     result <- rbind(result, rDT[, lapply(.SD, fun, na.rm = TRUE), by=z])
   }
   
@@ -1848,16 +1868,12 @@ fnSumAvgRadGdal <- function(ctryCode, nlYearMonth)
   
   ctryPolyData <- ctryPoly@data
   
-  ctryPolyData$ID_3 <- as.numeric(ctryPolyData[,lowestIDCol])
+  ctryPolyData[,lowestIDCol] <- as.integer(ctryPolyData[,lowestIDCol])
   
   ctryPolyData <- ctryPolyData[order(ctryPolyData[,lowestIDCol]),]
   
-  sumAvgRad$z <-as.numeric(sumAvgRad$z)
-  
   sumAvgRad <- merge(ctryPolyData, sumAvgRad, by.x=lowestIDCol, by.y="z", all.x=T, sort=T)
-  
-  sumAvgRad <- sumAvgRad[ , c(lowestIDCol, "B1_sum")]
-  
+
   sumAvgRad <- sumAvgRad$B1_sum
   
   return(sumAvgRad)
@@ -1872,13 +1888,15 @@ fnSumAvgRadRast <- function(ctryPoly, ctryRastCropped)
     message("Extracting data from polygon " , i, " ", base::date())
     dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
     
-    removeTmpFiles(h=0)
+    #removeTmpFiles(h=0)
     
     message("Calculating the NL sum of polygon ", i, " ", base::date())
     
     #calculate and return the mean of all the pixels
     data.frame(sum = sum(dat, na.rm=TRUE))
   }
+  
+  removeTmpFiles(h=0)
   
   gc()
   
