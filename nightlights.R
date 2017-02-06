@@ -1,9 +1,11 @@
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils)
+pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff)
 
 require(readr)
 require(dplyr)
+library(data.table)
+require(ff)
 
 require(lubridate)
 
@@ -50,6 +52,8 @@ shpTopLyrName <- "adm0"
 
 #cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdalwarp" or "rasterize" gdal is usually faster but requires gdal to be installed on the system
 cropMaskMethod <- "rasterize" 
+
+extractMethod <- "gdal"
 
 omitCountries <- "all"
 
@@ -197,7 +201,7 @@ mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries="none")
 
   map <- rworldmap::getMap()
   
-  map <- clgeo_Clean(map)
+  map <- clgeo_Clean(sp = map)
   
   ctryCodeIdx <- which(map@data$ISO3 %in% ctryCodes)
   
@@ -566,7 +570,7 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
     }
     else
     {
-      message("TGZ file found")
+      message("TIF file found")
     }
   }
   
@@ -971,6 +975,69 @@ processNLCountryOls <- function(cntryCode, nlYear)
     
 }
 
+createCtryNlDataDF <- function(ctryCode)
+{
+  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+  
+  ctryExtent <- extent(ctryPoly)
+  
+  projection(ctryPoly) <- CRS(wgs84)
+  
+  #get the list of admin levels in the polygon shapefile
+  ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
+  
+  #conver to lower case for consistency
+  ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
+  
+  #add the area as reported by the polygon shapefile as a convenience
+  areas <- area(ctryPoly)
+  
+  if (length(ctryPolyAdmLevels) > 0)
+  {
+    #When a country does not have lower administrative levels
+    
+    #the number of admin levels
+    nLyrs <- length(ctryPolyAdmLevels)
+    
+    #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
+    #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
+    #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
+    #nums <- c(paste(1:nLyrs,1:nLyrs))
+    
+    #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
+    
+    #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
+    
+    ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
+    
+    #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
+    ctryNlDataDF <- as.data.frame(ctryPoly@data[,eval(ctryPolyAdmCols)])
+    
+    #add the area as reported by the polygon shapefile as a convenience
+    areas <- area(ctryPoly)
+    
+    #we add the country code to ensure even a renamed file is identifiable
+    #repeat ctryCode for each row in the polygon. equiv of picking layer0
+    ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
+    
+    #combine the columns
+    ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
+    
+    #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
+    ctryPolyColNames <- ctryPolyAdmLevels
+    
+    #add the country_code and area columns to the dataframe
+    ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
+    
+    names(ctryNlDataDF) <- ctryPolyColNames
+  } else
+  {
+    ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
+  }
+  
+  return(ctryNlDataDF)
+}
+
 processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
 {
   #Download all tiles
@@ -989,13 +1056,13 @@ ctryShpLyrName2Num <- function(layerName)
 
 processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasterize")
 {
-  if(!exists("ctryCode") || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
+  if(missing(ctryCode) || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
     stop("ctryCode missing")
   
-  if(!exists("nlYearMonth") || class(nlYearMonth) != "character" || is.null(nlYearMonth) || nlYearMonth == "")
+  if(missing(nlYearMonth) || class(nlYearMonth) != "character" || is.null(nlYearMonth) || nlYearMonth == "")
     stop("nlYearMonth missing")
   
-  if (!exists("cropMaskMethod") || class(cropMaskMethod) != "character" || is.null(cropMaskMethod) || nlYearMonth == "")
+  if (missing(cropMaskMethod) || class(cropMaskMethod) != "character" || is.null(cropMaskMethod) || nlYearMonth == "")
     cropMaskMethod <- "rasterize"
   
   message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
@@ -1010,21 +1077,17 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
   {
     message("Data file found: ", getCtryNlDataFnamePath(ctryCode))
     
-    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode), header = TRUE, sep = ",")
-    
-    existingDataCols <- names(ctryNlDataDF)
-    
-    existingYearMonths <- existingDataCols[grep("^NL_[:alphanum:]*", existingDataCols)]
-    
-    existingYearMonths <- stringr::str_replace(existingYearMonths, "NL_VIIRS_", "")
-    
-    if(nlYearMonth %in% existingYearMonths)
+    if(existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
     {
-      message("Data exists for ", ctryCode, " ", nlYearMonth)
+      message("Data exists for ", ctryCode, " ", nlYearMonth, ". Skipping")
       
       return(-1)
     }
     
+    message("Load country data file")
+    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode))
+      
+    message("Load country polygon lowest admin level")
     ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
     
     ctryExtent <- extent(ctryPoly)
@@ -1035,63 +1098,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
   {
     message("Data file not found. Creating ...")
     
-    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
-    
-    ctryExtent <- extent(ctryPoly)
-    
-    projection(ctryPoly) <- CRS(wgs84)
-    
-    #get the list of admin levels in the polygon shapefile
-    ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
-
-    #conver to lower case for consistency
-    ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
-
-    #add the area as reported by the polygon shapefile as a convenience
-    areas <- area(ctryPoly)
-    
-    if (length(ctryPolyAdmLevels) > 0)
-    {
-      #When a country does not have lower administrative levels
-      
-      #the number of admin levels
-      nLyrs <- length(ctryPolyAdmLevels)
-      
-      #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
-      #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
-      #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
-      #nums <- c(paste(1:nLyrs,1:nLyrs))
-      
-      #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-      
-      #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
-      
-      ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
-      
-      #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
-      ctryNlDataDF <- as.data.frame(ctryPoly@data[,eval(ctryPolyAdmCols)])
-      
-      #add the area as reported by the polygon shapefile as a convenience
-      areas <- area(ctryPoly)
-      
-      #we add the country code to ensure even a renamed file is identifiable
-      #repeat ctryCode for each row in the polygon. equiv of picking layer0
-      ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
-    
-      #combine the columns
-      ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
-      
-      #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
-      ctryPolyColNames <- ctryPolyAdmLevels
-      
-      #add the country_code and area columns to the dataframe
-      ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
-      
-      names(ctryNlDataDF) <- ctryPolyColNames
-    } else
-    {
-      ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
-    }
+    ctryNlDataDF <- createCtryNlDataDF(ctryCode)
     
     message("Data file not found. Creating ... DONE")
   }
@@ -1182,9 +1189,7 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
       
       message("gdalwarp ",base::date())
       
-      #gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), crop_to_cutline = TRUE, multi=TRUE, wo="NUM_THREADS=ALL_CPUS GDALWARP_IGNORE_BAD_CUTLINE=YES")
-      
-      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), crop_to_cutline = TRUE, multi=TRUE, wo="NUM_THREADS=ALL_CPUS")
+      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wo="NUM_THREADS=ALL_CPUS")
       
       message("gdal_translate ", base::date())
       gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
@@ -1208,24 +1213,12 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
     crs(ctryRastCropped) <- CRS(wgs84)
   }
   
-  registerDoParallel(cores=detectCores()-2)
-  
   message("Begin extracting the data from the merged raster ", base::date())
   
-  sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
-  {
-    message("Extracting data from polygon " , i, " ", base::date())
-    dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
-    
-    removeTmpFiles(h=0)
-    
-    message("Calculating the NL sum of polygon ", i, " ", base::date())
-    
-    #calculate and return the mean of all the pixels
-    data.frame(sum = sum(dat, na.rm=TRUE))
-  }
-
-  gc()
+  if (extractMethod == "rast")
+    sumAvgRad <- fnSumAvgRadRast(ctryPoly, ctryRastCropped)
+  else if (extractMethod == "gdal")
+    sumAvgRad <- fnSumAvgRadGdal(ctryCode, nlYearMonth)
   
   #merge the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(ctryNlDataDF, sumAvgRad)
@@ -1255,6 +1248,8 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rasteri
   
   removeTmpFiles(h = 0)
 }
+
+
 
 getCtryRasterOutputFname <- function(ctryCode, nlYearMonth)
 {
@@ -1544,7 +1539,22 @@ getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
   return (ctryTiles)
 }
 
-processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYears(), nlType="VIIRS")
+existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
+{
+  if (!existsCtryNlDataFile(ctryCode))
+    return (FALSE)
+  
+  dt <- read.csv(getCtryNlDataFnamePath(ctryCode), nrow=1, header=TRUE)
+  
+  hd <- names(dt)
+  
+  if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
+    return(TRUE)
+  else
+    return(FALSE)
+}
+
+processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAllNlYears(), nlType="VIIRS")
 {
   #nlYearMonths is a character vector with each entry containing an entry of the form YYYYMM (%Y%m)
   #e.g. 201401 representing the month for which nightlights should be calculated
@@ -1569,7 +1579,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
   if (is.null(ctryCodes))
   {
     #get list of all country codes
-    ctryCodes <- getAllNlCtryCodes()
+    ctryCodes <- getAllNlCtryCodes(omit = "all")
   }
   
   ##First step: Determine which tiles are required for processing. This is determined by the 
@@ -1605,25 +1615,33 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes(), nlYearMonths=getAllNlYe
       #For each country
       for (ctryCode in unique(ctryCodes))
       {
-        if (file.exists(getCtryNlDataFnamePath(ctryCode)))
+        if (existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
         {
-          dt <- read.csv(getCtryNlDataFnamePath(ctryCode), nrow=1, header=TRUE)
+          message ("Data exists for", ctryCode)
           
-          hd <- names(dt)
-          
-          if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
-            next
+          next()
         }
+        
+        message("Adding tiles for ", ctryCode)
+        
         ctryTiles <- getCtryCodeTileList(ctryCode)
         
         tileList <- c(tileList, setdiff(ctryTiles, tileList))
         
         if (length(tileList) == nrow(nlTiles))
+        {
+          message ("All tiles have been listed. No need to check other country tiles")
+          
           break
+        }
       }
     
       if (length(tileList) == 0)
+      {
+        message("No tiles needed for ", nlYearMonth, ". Process next nlYearMonth")
+        
         next
+      }
 
       if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
       {
@@ -1708,4 +1726,155 @@ cleanup <- function()
   #ensure files have been written that need to
   
   #
+}
+
+library(raster)
+
+myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...) 
+{ 
+  fun <- match.fun(stat)
+  
+  #vals1 <- ff(vmode="double",dim=c(x@nrows,x@ncols),filename=paste0("x.ffdata"))
+  
+  vals <- NULL
+  zones <- NULL
+  
+  blocks <- blockSize(x)
+  
+  result <- NULL
+  
+  for (i in 1:blocks$n)
+  {
+    vals <- getValues(x, blocks$row[i], blocks$nrows[i])
+    zones <- round(getValues(z, blocks$row[i], blocks$nrows[i]), digits = digits)
+    rDT <- data.table(vals, z=zones)
+    setkey(rDT, z)
+    
+    result <- rbind(result, rDT[, lapply(.SD, fun, na.rm = TRUE), by=z])
+  }
+  
+  result <- result[, lapply(.SD, fun, na.rm = TRUE), by=z]
+  
+  gc()
+  
+  return(result)
+} 
+
+ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat)
+{
+  #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
+  #path.in.shp: Shapefile with zone (INPUT)
+  #path.in.r: Raster from which the stats have to be computed (INPUT)
+  #path.out.r: Path of path.in.shp converted in raster (intermediate OUTPUT)
+  #path.out.shp: Path of path.in.shp with stat value (OUTPUT)
+  #zone.attribute: Attribute name of path.in.shp corresponding to the zones (ID, Country...)
+  #stat: function to summary path.in.r values ("mean", "sum"...)
+  
+  # 1/ Rasterize using GDAL
+  
+  #Initiate parameter
+  r<-stack(path.in.r)
+  
+  ext<-extent(r)
+  ext<-paste(ext[1], ext[3], ext[2], ext[4])
+  
+  res<-paste(res(r)[1], res(r)[2])
+  
+  lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
+  lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
+  
+  #Gdal_rasterize
+  message("Creating zonal raster")
+  command<-'gdal_rasterize'
+  command<-paste(command, "--config GDAL_CACHEMAX 2000") #Speed-up with more cache (avice: max 1/3 of your total RAM)
+  command<-paste(command, "-l", lowestLyrName)
+  #command<-paste(command, "-where", paste0(lowestIDCol, "=", i))
+  command<-paste(command, "-a", zone.attribute) #Identifies an attribute field on the features to be used for a burn in value. The value will be burned into all output bands.
+  command<-paste(command, "-te", as.character(ext)) #(GDAL >= 1.8.0) set georeferenced extents. The values must be expressed in georeferenced units. If not specified, the extent of the output file will be the extent of the vector layers.
+  command<-paste(command, "-tr", res) #(GDAL >= 1.8.0) set target resolution. The values must be expressed in georeferenced units. Both must be positive values.
+  #command<-paste(command, "-a_nodata", 0)
+  command<-paste(command, path.in.shp)
+  command<-paste(command, "temprast.tif")
+  
+  system(command)
+  
+  message("Compressing zonal raster")
+  gdal_translate(co = "compress=LZW", src_dataset = "temprast.tif", dst_dataset = path.out.r)
+  
+  file.remove("temprast.tif")
+  
+  # 2/ Zonal Stat using myZonal function
+  zone<-raster(path.out.r)
+  
+  message("Calculating zonal stats ...")
+  Zstat<-data.frame(myZonal(r, zone, stat))
+  
+  message("Calculating zonal stats ... DONE")
+  
+  colnames(Zstat)[2:length(Zstat)]<-paste0("B", c(1:(length(Zstat)-1)), "_",stat)
+  
+  return(Zstat)
+  
+  # 3/ Merge data in the shapefile and write it
+  #shp<-readOGR(path.in.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)))
+  
+  #shp@data <- data.frame(shp@data, Zstat[match(shp@data[,zone.attribute], Zstat[, "z"]),])
+  
+  #writeOGR(shp, path.out.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)), driver="ESRI Shapefile")
+}
+
+fnSumAvgRadGdal <- function(ctryCode, nlYearMonth)
+{
+  #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
+  path.in.shp<- getPolyFnamePath(ctryCode)
+  path.in.r<- getCtryRasterOutputFname(ctryCode, nlYearMonth) #or path.in.r<-list.files("/home/, pattern=".tif$")
+  path.out.r<-"zone.tif"
+  path.out.shp<-"zone_withZstat.shp"
+  zone.attribute<-paste0("ID_", gsub("[^[:digit:]]", "", getCtryShpLowestLyrName(ctryCode)))
+  
+  lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
+  
+  lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
+ 
+  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), lowestLyrName)
+  
+  sumAvgRad <-ZonalPipe(ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat="sum")
+  
+  ctryPolyData <- ctryPoly@data
+  
+  ctryPolyData$ID_3 <- as.numeric(ctryPolyData[,lowestIDCol])
+  
+  ctryPolyData <- ctryPolyData[order(ctryPolyData[,lowestIDCol]),]
+  
+  sumAvgRad$z <-as.numeric(sumAvgRad$z)
+  
+  sumAvgRad <- merge(ctryPolyData, sumAvgRad, by.x=lowestIDCol, by.y="z", all.x=T, sort=T)
+  
+  sumAvgRad <- sumAvgRad[ , c(lowestIDCol, "B1_sum")]
+  
+  sumAvgRad <- sumAvgRad$B1_sum
+  
+  return(sumAvgRad)
+}
+
+fnSumAvgRadRast <- function(ctryPoly, ctryRastCropped)
+{
+  registerDoParallel(cores=detectCores()-2)
+  
+  sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
+  {
+    message("Extracting data from polygon " , i, " ", base::date())
+    dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
+    
+    removeTmpFiles(h=0)
+    
+    message("Calculating the NL sum of polygon ", i, " ", base::date())
+    
+    #calculate and return the mean of all the pixels
+    data.frame(sum = sum(dat, na.rm=TRUE))
+  }
+  
+  gc()
+  
+  return(sumAvgRad)
 }
