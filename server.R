@@ -76,11 +76,18 @@ shinyServer(function(input, output) {
         meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
         
         ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+
+        ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+
+        ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
         
         if (input$norm_area)
-          ctryData$value <- (ctryData$value*10e4)/ctryData$value
+          ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
         
-        ggplot(data=ctryData, aes(x=ctryData[,input$admLevel], y=value)) + geom_boxplot() + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + facet_wrap(~ variable, ncol = 1)
+        ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,input$admLevel], ctryData[,"variable"]), mean, na.rm=T), c(input$admLevel, "variable", "value"))
+
+        g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel) # + facet_wrap(~ variable, ncol = 1)
+
       }
       else if (length(input$countries) > 1)
       {
@@ -91,18 +98,34 @@ shinyServer(function(input, output) {
         meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
         
         ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+
+        ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+
+        ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
         
         if (input$norm_area)
-          ctryData$value <- (ctryData$value*10e4)/ctryData$area
+          ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
         
         plotData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
         
-        ggplot(data=plotData, aes(x=variable, y=value, group=country_code, col=country_code))+ geom_line() + geom_point()
+        g <- ggplot(data=plotData, aes(x=variable, y=value, col=country_code))
       }
       else
       {
         return()
       }
+
+      if (input$scale_y_log)
+        g <- g + scale_y_log10()
+
+      if (input$graphtype == "boxplot")
+        g <- g + geom_boxplot()
+      else if (input$graphtype == "line")
+        g <- g+ geom_smooth(size=1.1) + geom_point()
+      else if (input$graphtype == "histogram")
+        g <- g + geom_histogram()
+
+      g
     })
     
     output$dataset <- renderTable({

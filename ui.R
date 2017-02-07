@@ -19,6 +19,12 @@ ctryCodeNames <- lapply(ctryCodesWithData, function(x) ctryCodeToNAME(x))
 ctryCodesWithData <- setNames(ctryCodesWithData, ctryCodeNames)
 
 #allCtryCodes <- getAllNlCtryCodes()
+alignCenter <- function(el) {
+  htmltools::tagAppendAttributes(el,
+                                 style="margin-left:auto;margin-right:auto;"
+  )
+}
+
 
 shinyUI(
   fluidPage(
@@ -47,11 +53,16 @@ shinyUI(
                       label = "Normalize by Area",
                       value = FALSE
                       ),
+
+        checkboxInput(inputId = "scale_y_log",
+                      label = "Log Scale Y",
+                      value = FALSE
+                      ),
         
         radioButtons(inputId = "graphtype",
                      label = "Graph type",
-                     choices = c("boxplot", "histogram", "line"),
-                     selected = "VIIRS",
+                     choices = c("boxplot", "histogram", "line", "point"),
+                     selected = "boxplot",
                      inline = T),
         
         sliderInput(inputId = "time",
@@ -70,7 +81,17 @@ shinyUI(
       mainPanel(
         tabsetPanel(
           tabPanel("Plot",
-                   plotOutput(outputId = "plotNightLights")
+                   plotOutput(outputId = "plotNightLights"),
+
+                    sliderInput(inputId = "time",
+                    label = "Time",
+                    min = as.Date("2012-04-01", "%Y-%m-%d"),
+                    max = as.Date("2016-12-31", "%Y-%m-%d"),
+                    timeFormat = "%Y-%m",
+                    step = 1,
+                    value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d")),
+                    width = 700
+                    )
                    ),
           tabPanel("Data",
                    tableOutput(outputId = "dataset"))

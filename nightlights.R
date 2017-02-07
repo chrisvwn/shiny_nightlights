@@ -3,10 +3,16 @@
 #+ delete the 2nd tif in the tiles (avg_rad_...).
 #+ keep tiles gzipped until required. extract/delete as needed
 #+ modularize everything; processNtLts especially
-#+ give functions better names
+#+ give functions better names more descriptive
 #+ validation of inputs, error handling
 #+ give temp files unique names to avoid problems in case of parallelization
 #+ settings and default settings list/DF
+#+ optimize download of tiles
+#+ zone files functions
+#+ logging
+#+ debug mode
+#+ verify treatment of ATA i.e. single adm level countries
+#+ logic of getCtryPolyAdmLevelNames esp lvlEngName assignment needs scrutiny
 
 #Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal crop to extent would be highly desirable though so seeking other gdal-based workarounds
 
@@ -1348,7 +1354,7 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
       lvlEngName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeEngName)]))
       
       if ((!is.na(lvlName) && !is.na(lvlEngName)) && lvlName != lvlEngName)
-        lvlName <- paste0(lvlName, " (", lvlEngName, ")")
+        lvlName <- paste0(lvlName, "_(", lvlEngName, ")")
       
       if (is.na(lvlName))
         lvlName <- "Unknown"
@@ -1438,7 +1444,7 @@ getAllNlCtryCodes <- function(omit="none")
   if ("error" %in% omit)
     errorProcessing <- c("ATF", "GNQ", "KIR", "NZL", "CAN", "MUS")
   
-  
+  #consolidate the list of countries to omit
   omitCountries <- unlist(c(tooLongProcessing, missingPolygon, errorProcessing))
   
   #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
@@ -1448,9 +1454,14 @@ getAllNlCtryCodes <- function(omit="none")
   #some polygons have problems. use cleangeo package to rectify
   map <- clgeo_Clean(map)
   
+  #get the list of country codes from the rworldmap
   ctryCodes <- as.character(map@data$ISO3)
   
+  #remove all omitCountries from the list
   ctryCodes <- subset(ctryCodes, !(ctryCodes %in% omitCountries))
+  
+  #sort the country codes in ascending alphabetical order
+  ctryCodes <- ctryCodes[order(ctryCodes)]
 
   return (ctryCodes)
 }
