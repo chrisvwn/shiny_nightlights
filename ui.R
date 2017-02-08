@@ -65,14 +65,7 @@ shinyUI(
                      selected = "boxplot",
                      inline = T),
         
-        sliderInput(inputId = "time",
-                    label = "Time",
-                    min = 2012,
-                    max = 2016,
-                    timeFormat = "%Y-%m-%d",
-                    step = 1,
-                    value = c(2012,2016)
-                    )
+        uiOutput("sliderNlYearMonthRange")
         
         # uiOutput(output$interCountry)
       ),
@@ -81,22 +74,25 @@ shinyUI(
       mainPanel(
         tabsetPanel(
           tabPanel("Plot",
-                   plotOutput(outputId = "plotNightLights"),
-
-                    sliderInput(inputId = "time",
-                    label = "Time",
-                    min = as.Date("2012-04-01", "%Y-%m-%d"),
-                    max = as.Date("2016-12-31", "%Y-%m-%d"),
-                    timeFormat = "%Y-%m",
-                    step = 1,
-                    value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d")),
-                    width = 700
-                    )
+                   plotOutput(outputId = "plotNightLights")
                    ),
+
+          tabPanel("Maps",
+                   textOutput("Maps")
+                   ),
+
+          tabPanel("Stats",
+                   textOutput("Stats")
+          ),
+          
+          tabPanel("Models",
+                   textOutput("Models")
+                   ),
+          
           tabPanel("Data",
-                   tableOutput(outputId = "dataset"))
+                   DT::dataTableOutput(outputId = "dataset")
+                   )
         )
-        
       )
     )
   )

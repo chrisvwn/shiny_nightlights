@@ -13,6 +13,8 @@ source("nightlights.R")
 
 shinyServer(function(input, output) {
 
+  yrs <- getAllNlYears("VIIRS")
+    
     ctryAdmLevels <- reactive({
       if (length(input$countries) != 1)
         return()
@@ -63,6 +65,40 @@ shinyServer(function(input, output) {
                    )
     })
 
+    output$sliderNlYearMonthRange <- renderUI({
+      if (is.null(ctryNlData()))
+      {
+        sliderInput(inputId = "nllYearMonthRange",
+                    label = "Time",
+                    min = as.Date("2012-04-01", "%Y-%m-%d"),
+                    max = as.Date("2016-12-31", "%Y-%m-%d"),
+                    timeFormat = "%Y-%m",
+                    step = 1,
+                    value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d")),
+        )
+      }
+      else
+      {
+        nlCols <- names(ctryNlData())
+        nlYearCols <- gsub("[^[:digit:]]", "", nlCols[grep("NL_VIIRS", nlCols)])
+        nlYearCols <- sapply(nlYearCols, function(x) paste0(x,"01"))
+        nlYearCols <- as.Date(nlYearCols, "%Y%m%d")
+        
+        
+        minDate <- min(nlYearCols)
+        maxDate <- max(nlYearCols)
+                           
+        sliderInput(inputId = "nlYearMonthRange",
+                    label = "Time",
+                    min = minDate,
+                    max = maxDate,
+                    timeFormat = "%Y-%m",
+                    step = 1,
+                    value = c(minDate, maxDate)#,
+        )
+      }
+    })
+    
     output$plotNightLights <- renderPlot({
       if (is.null(ctryNlData()))
         return()
@@ -81,13 +117,11 @@ shinyServer(function(input, output) {
 
         ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
         
+        ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
+        
         if (input$norm_area)
           ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
         
-        ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,input$admLevel], ctryData[,"variable"]), mean, na.rm=T), c(input$admLevel, "variable", "value"))
-
-        g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel) # + facet_wrap(~ variable, ncol = 1)
-
       }
       else if (length(input$countries) > 1)
       {
@@ -103,37 +137,71 @@ shinyServer(function(input, output) {
 
         ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
         
+        ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
+        
         if (input$norm_area)
           ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
-        
-        plotData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
-        
-        g <- ggplot(data=plotData, aes(x=variable, y=value, col=country_code))
       }
       else
       {
         return()
       }
 
-      if (input$scale_y_log)
-        g <- g + scale_y_log10()
 
       if (input$graphtype == "boxplot")
-        g <- g + geom_boxplot()
+      {
+        if (length(input$countries)==1)
+        {
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
+        }
+        else
+        {
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code))
+        }
+        
+        g <- g + geom_boxplot()# +facet_grid(.~variable)
+      }
       else if (input$graphtype == "line")
-        g <- g+ geom_smooth(size=1.1) + geom_point()
-      else if (input$graphtype == "histogram")
-        g <- g + geom_histogram()
+      {
+        if (length(input$countries)==1)
+        {
+          ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,input$admLevel], ctryData[,"variable"]), mean, na.rm=T), c(input$admLevel, "variable", "value"))
+          
+          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
+        }
+        else
+        {
+          ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
+        }
 
+        g <- g+ geom_line(size=1.1) + geom_point()
+      }
+      else if (input$graphtype == "histogram")
+      {
+        #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+        
+        g <- ggplot(data=ctryData, aes(x=value))
+        
+        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_grid(country_code~.) # Overlay with transparent density plot
+
+      }
+
+      if (input$scale_y_log)
+        g <- g + scale_y_log10()
+      
       g
     })
     
-    output$dataset <- renderTable({
+    output$dataset <- DT::renderDataTable({
       if(is.null(ctryNlData()))
         return("NO DATA")
       
       ctryNlData()
-    })
+      },
+      
+      options = list(scrollX = TRUE, scrolly = TRUE)
+    )
     
     output$message <- renderText({
       input$countries
