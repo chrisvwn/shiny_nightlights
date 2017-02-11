@@ -235,7 +235,7 @@ shinyServer(function(input, output, session) {
       
       ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
       
-      ctryRast <- raster(getCtryRasterOutputFname(input$countries,"201209"))
+      ctryRast <- raster(getCtryRasterOutputFname(input$countries, "201209"))
       
       ctryPoly <- spTransform(ctryPoly, wgs84)
       
@@ -245,7 +245,7 @@ shinyServer(function(input, output, session) {
       pal <- pal[length(pal):1]
       
       leaflet(data=ctryPoly) %>% 
-        addRasterImage(ctryRast, colors=colorNumeric(palette=pal, domain=0:2, na.color="#00000000")) %>%
+        addRasterImage(ctryRast, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
         addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0) #%>%
         #fitBounds(e@xmin, e@ymin, e@xmax, e@ymax)
     })

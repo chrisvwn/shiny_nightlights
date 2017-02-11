@@ -41,7 +41,7 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(3)
+enableJIT(0)
 
 rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
@@ -1436,7 +1436,7 @@ getAllNlCtryCodes <- function(omit="none")
   errorProcessing <- ""
   
   if ("long" %in% omit)
-    tooLongProcessing <- "" #c("RUS", "BRA", "USA", "ATA", "FRA")
+    tooLongProcessing <- c("RUS", "BRA", "USA", "ATA", "FRA")
   
   if ("missing" %in% omit)
     missingPolygon <- c("CYN",  "KOS", "Ashm", "Gaza", "IOA", "KAS")
@@ -1897,9 +1897,20 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth)
   
   ctryPolyData <- ctryPolyData[order(ctryPolyData[,lowestIDCol]),]
   
-  sumAvgRad <- merge(ctryPolyData, sumAvgRad, by.x=lowestIDCol, by.y="z", all.x=T, sort=T)
+  #if there is only the country adm level i.e. no lower adm levels than the country adm level then we only have 1 row each but IDs may not match as seen with ATA. treat differently
+  #since we do not have IDs to merge by, we simply cbind the columns and return col2
+  if (lowestIDCol == "ID_0")
+  {
+    sumAvgRad <- cbind(ctryPolyData$ID_0, sumAvgRad[sumAvgRad$z!=0,"B1_sum"])
+    
+    sumAvgRad <- sumAvgRad[,2]
+  }
+  else
+  {
+    sumAvgRad <- merge(ctryPolyData, sumAvgRad, by.x=lowestIDCol, by.y="z", all.x=T, sort=T)
 
-  sumAvgRad <- sumAvgRad$B1_sum
+    sumAvgRad <- sumAvgRad$B1_sum
+  }
   
   return(sumAvgRad)
 }
