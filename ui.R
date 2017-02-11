@@ -7,6 +7,10 @@
 
 suppressMessages(library(shiny))
 
+suppressMessages(library(shinydashboard))
+
+suppressMessages(library(leaflet))
+
 suppressMessages(source("nightlights.R"))
 
 
@@ -25,75 +29,93 @@ alignCenter <- function(el) {
   )
 }
 
-
-shinyUI(
-  fluidPage(
+#shinyUI(
+  dashboardPage(
 
     # Application title
-    titlePanel("NightLights"),
+    dashboardHeader(title="Nightlights"),
   
     # Sidebar with a slider input for number of bins
-    sidebarLayout(
-      sidebarPanel(
-        selectizeInput(inputId = "countries",
-                    label = "Select Country(ies)",
-                    choices = ctryCodesWithData,
-                    multiple = TRUE
-                    ),
+    dashboardSidebar(
+      sidebarMenu(
+      
+        menuItem("plots", tabName = "plots", selected = TRUE),
         
-        uiOutput("intraCountry"),
+        menuItem("maps", tabName = "maps"),
         
-        radioButtons(inputId = "nltype",
-                     label = "Nightlight type",
-                     choices = c("OLS", "VIIRS"),
-                     selected = "VIIRS",
-                     inline = T),
+        menuItem("stats", tabName = "stats"),
         
-        checkboxInput(inputId = "norm_area",
-                      label = "Normalize by Area",
-                      value = FALSE
+        menuItem("models", tabName = "models"),
+        
+        menuItem("data", tabName = "data"),
+                  
+        menuItem("inputs", selected = TRUE,
+                 
+          selectizeInput(inputId = "countries",
+                      label = "Select Country(ies)",
+                      choices = ctryCodesWithData,
+                      multiple = TRUE
                       ),
-
-        checkboxInput(inputId = "scale_y_log",
-                      label = "Log Scale Y",
-                      value = FALSE
-                      ),
-        
-        radioButtons(inputId = "graphtype",
-                     label = "Graph type",
-                     choices = c("boxplot", "histogram", "line", "point"),
-                     selected = "boxplot",
-                     inline = T),
-        
-        uiOutput("sliderNlYearMonthRange")
-        
-        # uiOutput(output$interCountry)
+          
+          uiOutput("intraCountry"),
+          
+          radioButtons(inputId = "nltype",
+                       label = "Nightlight type",
+                       choices = c("OLS", "VIIRS"),
+                       selected = "VIIRS",
+                       inline = T
+                       ),
+          
+          checkboxInput(inputId = "norm_area",
+                        label = "Normalize by Area",
+                        value = FALSE
+                        ),
+  
+          checkboxInput(inputId = "scale_x_log",
+                        label = "Log Scale X",
+                        value = FALSE
+                        ),
+  
+          checkboxInput(inputId = "scale_y_log",
+                        label = "Log Scale Y",
+                        value = FALSE
+                        ),
+          
+          radioButtons(inputId = "graphtype",
+                       label = "Graph type",
+                       choices = c("boxplot", "histogram", "line", "point"),
+                       selected = "boxplot",
+                       inline = T
+                       )
+        ))
       ),
 
-      # Show a plot of
-      mainPanel(
-        tabsetPanel(
-          tabPanel("Plot",
-                   plotOutput(outputId = "plotNightLights")
+      # body
+      dashboardBody(
+        tabItems(
+          tabItem(tabName = "plots",
+                   plotOutput(outputId = "plotNightLights"),
+                   
+                   uiOutput("sliderNlYearMonthRange")
                    ),
 
-          tabPanel("Maps",
-                   textOutput("Maps")
-                   ),
+          tabItem(tabName = "maps",
+                  leafletOutput("map")
+                  ),
 
-          tabPanel("Stats",
+          tabItem(tabName = "stats",
                    textOutput("Stats")
-          ),
+                  ),
           
-          tabPanel("Models",
+          tabItem(tabName = "models",
                    textOutput("Models")
                    ),
           
-          tabPanel("Data",
+          tabItem(tabName = "Data",
                    DT::dataTableOutput(outputId = "dataset")
                    )
         )
       )
     )
-  )
-)
+  #)
+#)

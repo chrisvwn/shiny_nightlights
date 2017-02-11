@@ -7,13 +7,18 @@
 
 library(shiny)
 library(ggplot2)
+library(leaflet)
 library(reshape)
+library(rgdal)
+library(RColorBrewer)
 
 source("nightlights.R")
 
-shinyServer(function(input, output) {
+shinyServer(function(input, output, session) {
 
   yrs <- getAllNlYears("VIIRS")
+  
+  #isolate({updateTabItems(session, "inputs", "plotNightLights")})
     
     ctryAdmLevels <- reactive({
       if (length(input$countries) != 1)
@@ -48,7 +53,7 @@ shinyServer(function(input, output) {
             ctryData <- temp
           }else
           {
-            ctryData <- rbind(ctryData, temp)
+            ctryData <- merge(ctryData, temp, all=TRUE)
           }
         }
       }
@@ -56,7 +61,7 @@ shinyServer(function(input, output) {
     })
 
     output$intraCountry <- renderUI({
-      if(is.null(ctryAdmLevels()))
+      if(is.null(input$countries))
         return()
       
       radioButtons(inputId = "admLevel", 
@@ -74,7 +79,7 @@ shinyServer(function(input, output) {
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
                     timeFormat = "%Y-%m",
                     step = 1,
-                    value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d")),
+                    value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d"))
         )
       }
       else
@@ -183,12 +188,15 @@ shinyServer(function(input, output) {
         
         g <- ggplot(data=ctryData, aes(x=value))
         
-        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_grid(country_code~.) # Overlay with transparent density plot
+        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(input$countries)) # Overlay with transparent density plot
 
       }
 
       if (input$scale_y_log)
         g <- g + scale_y_log10()
+      
+      if (input$scale_x_log)
+        g <- g + scale_x_log10()
       
       g
     })
@@ -203,7 +211,43 @@ shinyServer(function(input, output) {
       options = list(scrollX = TRUE, scrolly = TRUE)
     )
     
-    output$message <- renderText({
-      input$countries
+    #output$message <- renderText({
+    #  input$countries
+    #})
+    
+    ##map output ##
+    
+    
+    output$map <- renderLeaflet({
+      # Use leaflet() here, and only include aspects of the map that
+      # won't need to change dynamically (at least, not unless the
+      # entire map is being torn down and recreated).
+      
+      if (length(input$countries) != 1)
+      {
+        renderText("Please select only one country/region")
+        return()
+      }
+      
+      lyrs <- ctryAdmLevels()
+      
+      lyrNum <- which(lyrs == input$admLevel)
+      
+      ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
+      
+      ctryRast <- raster(getCtryRasterOutputFname(input$countries,"201209"))
+      
+      ctryPoly <- spTransform(ctryPoly, wgs84)
+      
+      ctryData <- ctryNlData()
+      
+      pal <- brewer.pal(5, "YlGnBu")
+      pal <- pal[length(pal):1]
+      
+      leaflet(data=ctryPoly) %>% 
+        addRasterImage(ctryRast, colors=colorNumeric(palette=pal, domain=0:2, na.color="#00000000")) %>%
+        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0) #%>%
+        #fitBounds(e@xmin, e@ymin, e@xmax, e@ymax)
     })
+    
 })
