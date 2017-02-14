@@ -113,7 +113,7 @@ shinyServer(function(input, output, session) {
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
                     timeFormat = "%Y-%m",
                     step = 1,
-                    value = min
+                    value = as.Date("2012-04-01", "%Y-%m-%d")
         )
       }
       else
@@ -270,7 +270,13 @@ shinyServer(function(input, output, session) {
       
       ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
       
-      ctryRast <- raster(getCtryRasterOutputFname(input$countries, input$nlYearMonth))
+      nlYearMonth <- substr(gsub("-", "", input$nlYearMonth[1]), 1, 6)
+      
+      ctryRastName <- getCtryRasterOutputFname(input$countries, nlYearMonth)
+      
+      print(ctryRastName)
+      
+      ctryRast <- raster(ctryRastName)
       
       ctryPoly <- spTransform(ctryPoly, wgs84)
       
@@ -280,8 +286,9 @@ shinyServer(function(input, output, session) {
       pal <- pal[length(pal):1]
       
       leaflet(data=ctryPoly) %>% 
-        addRasterImage(ctryRast, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0) #%>%
+        addTiles() %>%
+        addRasterImage(ctryRast, colors=colorNumeric(pal, domain=1:2, na.color="#00000000")) %>%
+        addPolygons(fill = FALSE, stroke = TRUE, weight=1, smoothFactor = 0) #%>%
         #fitBounds(e@xmin, e@ymin, e@xmax, e@ymax)
     })
     
