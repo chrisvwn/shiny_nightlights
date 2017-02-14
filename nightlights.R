@@ -41,9 +41,9 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(0)
+enableJIT(3)
 
-rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
+#rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
 ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
@@ -75,7 +75,7 @@ cropMaskMethod <- "gdal"
 
 extractMethod <- "gdal"
 
-omitCountries <- "all"
+omitCountries <- "none"
 
 getNlTiles <- function()
 {
@@ -372,7 +372,7 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   #not working. download.file does not seem to update mtime
   if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))) || file.size(ntLtsPageLocalName) == 0)
   {
-    download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget")
+    download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget", extra = "  -N --timestamping --no-use-server-timestamps")
   }
   #else
   #  print(paste0(ntLtsPageHtml, " already downloaded"))
@@ -546,7 +546,8 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   ntLtsZipLocalNameVIIRS <- getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileNum)
   ntLtsTifLocalNameVIIRS <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)
   
-  if (!file.exists(ntLtsZipLocalNameVIIRS) && !file.exists(ntLtsTifLocalNameVIIRS))
+  #if (!file.exists(ntLtsZipLocalNameVIIRS) && !file.exists(ntLtsTifLocalNameVIIRS))
+  if (!file.exists(ntLtsTifLocalNameVIIRS))
   {
     ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
     
@@ -589,6 +590,8 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
         untar(ntLtsZipLocalNameVIIRS, files = tgzAvgRadFilename, exdir = dirRasterVIIRS)
       
         file.rename(paste0(dirRasterVIIRS,"/",tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
+
+        file.remove(ntLtsZipLocalNameVIIRS)
       }
     }
     else
@@ -1124,6 +1127,9 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
     ctryNlDataDF <- createCtryNlDataDF(ctryCode)
     
     message("Data file not found. Creating ... DONE")
+
+    message("Load country polygon lowest admin level")
+    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
   }
 
   if(!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
@@ -1207,20 +1213,22 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
       
       writeRaster(ctryRastCropped, rstTmp)
       
-      if (file.exists("output_file.vrt"))
-        file.remove("output_file.vrt")
+      output_file_vrt <- paste0(ctryCode, "_", nlYearMonth, ".vrt")
+      
+      if (file.exists(output_file_vrt))
+        file.remove(output_file_vrt)
       
       message("gdalwarp ",base::date())
       
-      gdalwarp(srcfile=rstTmp, dstfile="output_file.vrt", s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wm=2048, wo="NUM_THREADS=ALL_CPUS")
+      gdalwarp(srcfile=rstTmp, dstfile=output_file_vrt, s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wm=2048, wo="NUM_THREADS=ALL_CPUS")
       
       message("gdal_translate ", base::date())
-      gdal_translate(co = "compress=LZW", src_dataset = "output_file.vrt", dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
+      gdal_translate(co = "compress=LZW", src_dataset = output_file_vrt, dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
       
       message("Deleting the component rasters ", base::date())
       
       file.remove(rstTmp)
-      file.remove("output_file.vrt")
+      file.remove(output_file_vrt)
       
       ctryRastCropped <- raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
       #GDALWARP
@@ -1684,17 +1692,17 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
         processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = cropMaskMethod)
       }
       
-#       for (tile in tileList)
-#       {
-#         nlYear <- substr(nlYearMonth, 1, 4)
-#         nlMonth <- substr(nlYearMonth, 5, 6)
-#         
-#         #del the tif file
-#         file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
-#         
-#         #del the zip file
-#         file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
-#       }
+      for (tile in tileList)
+      {
+        nlYear <- substr(nlYearMonth, 1, 4)
+        nlMonth <- substr(nlYearMonth, 5, 6)
+        
+        #del the tif file
+        file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+        
+        #del the zip file
+        file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+      }
     }
     else if (nlType == "OLS")
     {
@@ -1715,7 +1723,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
   }
 }
 
-initNtLts <- function()
+initNtLts <- function(omitCountries="none")
 {
   #the constructor
   
@@ -1744,7 +1752,6 @@ initNtLts <- function()
   
   tSpPolysDFs <<- createNlTilesSpPolysDF()
   
-  ctryCodeTiles <<- mapAllCtryPolyToTiles(omitCountries = "all")
   #
 }
 

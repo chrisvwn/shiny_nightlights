@@ -100,7 +100,9 @@ alignCenter <- function(el) {
                    ),
 
           tabItem(tabName = "maps",
-                  leafletOutput("map")
+                  leafletOutput("map"),
+                  
+                  uiOutput("sliderNlYearMonth")
                   ),
 
           tabItem(tabName = "stats",

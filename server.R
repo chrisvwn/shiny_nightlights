@@ -104,6 +104,41 @@ shinyServer(function(input, output, session) {
       }
     })
     
+    output$sliderNlYearMonth <- renderUI({
+      if (is.null(ctryNlData()))
+      {
+        sliderInput(inputId = "nllYearMonthRange",
+                    label = "Time",
+                    min = as.Date("2012-04-01", "%Y-%m-%d"),
+                    max = as.Date("2016-12-31", "%Y-%m-%d"),
+                    timeFormat = "%Y-%m",
+                    step = 1,
+                    value = min
+        )
+      }
+      else
+      {
+        nlCols <- names(ctryNlData())
+        nlYearCols <- gsub("[^[:digit:]]", "", nlCols[grep("NL_VIIRS", nlCols)])
+        nlYearCols <- sapply(nlYearCols, function(x) paste0(x,"01"))
+        nlYearCols <- as.Date(nlYearCols, "%Y%m%d")
+        
+        
+        minDate <- min(nlYearCols)
+        maxDate <- max(nlYearCols)
+        
+        sliderInput(inputId = "nlYearMonthRange",
+                    label = "Time",
+                    min = minDate,
+                    max = maxDate,
+                    timeFormat = "%Y-%m",
+                    step = 1,
+                    value = minDate
+        )
+      }
+    })
+    
+    
     output$plotNightLights <- renderPlot({
       if (is.null(ctryNlData()))
         return()
@@ -235,7 +270,7 @@ shinyServer(function(input, output, session) {
       
       ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
       
-      ctryRast <- raster(getCtryRasterOutputFname(input$countries, "201209"))
+      ctryRast <- raster(getCtryRasterOutputFname(input$countries, input$nlYearMonth))
       
       ctryPoly <- spTransform(ctryPoly, wgs84)
       
