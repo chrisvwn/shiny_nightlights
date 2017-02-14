@@ -73,7 +73,7 @@ shinyServer(function(input, output, session) {
     output$sliderNlYearMonthRange <- renderUI({
       if (is.null(ctryNlData()))
       {
-        sliderInput(inputId = "nllYearMonthRange",
+        sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
                     min = as.Date("2012-04-01", "%Y-%m-%d"),
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
@@ -93,7 +93,7 @@ shinyServer(function(input, output, session) {
         minDate <- min(nlYearCols)
         maxDate <- max(nlYearCols)
                            
-        sliderInput(inputId = "nlYearMonthRange",
+        sliderInput(inputId = "nlYearMonth",
                     label = "Time",
                     min = minDate,
                     max = maxDate,
@@ -107,7 +107,7 @@ shinyServer(function(input, output, session) {
     output$sliderNlYearMonth <- renderUI({
       if (is.null(ctryNlData()))
       {
-        sliderInput(inputId = "nllYearMonthRange",
+        sliderInput(inputId = "nlYearMonth",
                     label = "Time",
                     min = as.Date("2012-04-01", "%Y-%m-%d"),
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
@@ -127,7 +127,7 @@ shinyServer(function(input, output, session) {
         minDate <- min(nlYearCols)
         maxDate <- max(nlYearCols)
         
-        sliderInput(inputId = "nlYearMonthRange",
+        sliderInput(inputId = "nlYearMonth",
                     label = "Time",
                     min = minDate,
                     max = maxDate,
