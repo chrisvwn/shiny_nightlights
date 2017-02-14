@@ -99,7 +99,7 @@ shinyServer(function(input, output, session) {
                     max = maxDate,
                     timeFormat = "%Y-%m",
                     step = 1,
-                    value = c(minDate, maxDate)#,
+                    value = c(minDate, maxDate)
         )
       }
     })
@@ -258,6 +258,8 @@ shinyServer(function(input, output, session) {
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).
       
+      input$drawMap
+      
       if (length(input$countries) != 1)
       {
         renderText("Please select only one country/region")
@@ -270,11 +272,11 @@ shinyServer(function(input, output, session) {
       
       ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
       
-      nlYearMonth <- substr(gsub("-", "", input$nlYearMonth[1]), 1, 6)
+      nlYearMonth <- isolate(substr(gsub("-", "", input$nlYearMonth[1]), 1, 6))
       
       ctryRastName <- getCtryRasterOutputFname(input$countries, nlYearMonth)
       
-      print(ctryRastName)
+      print(input$nlYearMonth)
       
       ctryRast <- raster(ctryRastName)
       
@@ -282,13 +284,18 @@ shinyServer(function(input, output, session) {
       
       ctryData <- ctryNlData()
       
-      pal <- brewer.pal(5, "YlGnBu")
-      pal <- pal[length(pal):1]
+      minColor <- quantile(ctryRast, 0.02)
+      maxColor <- quantile(ctryRast, 0.98)
+      
+      #pal <- brewer.pal(5, "YlGnBu")
+      #pal <- pal[length(pal):1]
+      
+      pal <- gray.colors(10, 0, 1)
       
       leaflet(data=ctryPoly) %>% 
         addTiles() %>%
-        addRasterImage(ctryRast, colors=colorNumeric(pal, domain=1:2, na.color="#00000000")) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=1, smoothFactor = 0) #%>%
+        addRasterImage(ctryRast, colors=colorBin(pal, domain=NULL, bins=10, na.color="#00000000")) %>%
+        addPolygons(fill = FALSE, stroke = TRUE, color = "#ffffcc1f", weight=1, smoothFactor = 0.2) #%>%
         #fitBounds(e@xmin, e@ymin, e@xmax, e@ymax)
     })
     
