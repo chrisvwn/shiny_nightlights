@@ -1,0 +1,111 @@
+#!/bin/sh
+
+#AWS userdata script for initing an ubuntu server with AMI ami-8fe18f98 by Louise Aslett which contains R, Rserver etc.
+#Used to setup an AWS EC2 instance for the shiny_nightlights server.
+#This script will cause the download and processing of all nightlight tiles for all years (currently SNPP/VIIRS) and all countries. Output will be in the form of CSV files, cropped rasters
+#It will install the pre-requisite software i.e. aria2 for downloads, aws-cli and gdal for processing. Without gdal, the R script processes using raster::rasterize which performs better with more CPUs (doParallel)
+#To use, follow these steps:
+#1. Create an Elastic Block Store volume (suggest 100GB)
+#2. Create a nano EC2 instance for the lowest costs possible
+#3. Boot up and log into the nano EC2 instance
+#4. Mount the EBS volume, create a partition and filesystem (suggest EXT4)
+#5. Unmount the EBS volume
+#6. Create an on-demand or spot instance and install this script in the user "data option" so that it runs at first boot. Suggest moderate capacity e.g. 2 vCPU & 4GB RAM minimum. Without gdal increase capacity for faster completion
+#7. Boot the on-demand or spot instance
+#8. Log in and monitor the boot sequence (tail -f /var/log/cloud-init.log) and look to see that the Rscript starts processing
+
+#Disk Space alert
+#Monitor disk space due to tile sizes. Each month ~ 20GB therefore 4 tasks = 80GB minimum space will be occupied
+#Polygons ~ 0.5GB
+#zonal rasters ~ 3GB
+#outputrasters ~ 3GB per month
+#data ~ 200M
+
+echo "executing startup script"
+
+while ps -ax|grep [a]pt-get; do echo "apt-get still running"; done
+
+sudo apt-get update
+
+while ps -ax|grep [a]pt-get; do echo "apt-get still running"; done
+
+sleep 5
+
+sudo apt install -y aria2
+
+while ps -ax|grep [a]pt-get; do echo "apt-get still running"; done
+
+sleep 5
+
+sudo apt-get -y install python-software-properties
+
+while ps -ax|grep [a]pt-get; do echo "apt-get still running"; done
+
+sleep 5
+
+sudo add-apt-repository -y ppa:ubuntugis/ppa
+
+while ps -ax|grep [a]dd-apt-repository; do echo "apt-get still running"; done
+
+sleep 5
+
+sudo apt install -y gdal-bin
+
+
+curl -O https://bootstrap.pypa.io/get-pip.py
+
+sudo python get-pip.py
+
+sudo pip install awscli
+
+EC2_AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+EC2_REGION="`echo \"$EC2_AVAIL_ZONE\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
+
+aws configure set region $EC2_REGION
+aws configure set aws_access_key_id <your_access_key_id> 
+aws configure set aws_secret_access_key <your_access_key>
+
+mkdir /home/ubuntu/ShinyApps && chown ubuntu.ubuntu /home/ubuntu/ShinyApps
+
+# attach the EBS volume to this machine
+aws ec2 attach-volume --volume-id <your_volume_id>  --instance-id  $(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id ) --device /dev/xvdg
+
+sleep 10
+
+# mount the attached EBS volume
+echo "mounting the  attached volume"
+sudo mount /dev/xvdg /home/ubuntu/ShinyApps
+
+cd /home/ubuntu/ShinyApps/shiny_nightlights
+
+#only use to point to a custom gdal path
+#in this case was testing gdal 2.1.0 for multi-processing
+#export PATH=/home/ubuntu/ShinyApps/gdal-2.1.0/bin/:$PATH
+#export LD_LIBRARY_PATH=/home/ubuntu/ShinyApps/gdal-2.1.0/lib:$LD_LIBRARY_PATH
+#export GDAL_DATA=/home/ubuntu/ShinyApps/gdal-2.1.0/share/gdal
+
+#install R libraries globally so that R server and shiny-server can pick them up
+sudo Rscript ui.R #includes nightlights.R
+sudo Rscript server.R
+
+#if for whatever reason the global lib install didn't work setup a local lib and let the local user install to that
+#this means the r-server and shiny-server if present will not work
+mkdir libs && chown ubuntu.ubuntu libs
+
+export R_LIBS=`pwd`/libs
+
+mkdir RTemp && chown ubuntu.ubuntu RTemp
+
+export TMPDIR=/home/ubuntu/ShinyApps/shiny_nightlights/RTemp
+
+rm /home/ubuntu/ShinyApps/shiny_nightlights/RTemp/* -rf
+
+#Batch process all years in parallel. Note: Potential race condition when writing data to csv therefore stagger each year
+#There's a better way of doing this!
+R CMD BATCH processntlts_2012.R &
+sleep 300 #stagger to prevent writing of csv at the same time
+R CMD BATCH processntlts_2013.R &
+sleep 300
+R CMD BATCH processntlts_2014.R &
+sleep 300
+R CMD BATCH processntlts_2015.R &
