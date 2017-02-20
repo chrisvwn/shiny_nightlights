@@ -5,6 +5,10 @@
 # http://shiny.rstudio.com
 #
 
+if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+
+pacman::p_load(shiny, shinydashboard, leaflet)
+
 suppressMessages(library(shiny))
 
 suppressMessages(library(shinydashboard))
@@ -39,6 +43,48 @@ alignCenter <- function(el) {
     dashboardSidebar(
       sidebarMenu(
       
+        menuItem("inputs", selected = TRUE,
+                 
+                 selectizeInput(inputId = "countries",
+                                label = "Select Country(ies)",
+                                choices = ctryCodesWithData,
+                                multiple = TRUE
+                 ),
+                 
+                 uiOutput("intraCountry"),
+                 
+                 radioButtons(inputId = "nltype",
+                              label = "Nightlight type",
+                              choices = c("OLS", "VIIRS"),
+                              selected = "VIIRS",
+                              inline = T
+                 ),
+                 
+                 checkboxInput(inputId = "norm_area",
+                               label = "Normalize by Area",
+                               value = FALSE
+                 ),
+                 
+                 checkboxInput(inputId = "scale_x_log",
+                               label = "Log Scale X",
+                               value = FALSE
+                 ),
+                 
+                 checkboxInput(inputId = "scale_y_log",
+                               label = "Log Scale Y",
+                               value = FALSE
+                 ),
+                 
+                 radioButtons(inputId = "graphtype",
+                              label = "Graph type",
+                              choices = c("boxplot", "histogram", "line", "point"),
+                              selected = "boxplot",
+                              inline = T
+                 ),
+                 
+                 actionButton("btnDone", "Done")
+        ),
+        
         menuItem("plots", tabName = "plots", selected = TRUE),
         
         menuItem("maps", tabName = "maps"),
@@ -47,47 +93,8 @@ alignCenter <- function(el) {
         
         menuItem("models", tabName = "models"),
         
-        menuItem("data", tabName = "data"),
-                  
-        menuItem("inputs", selected = TRUE,
-                 
-          selectizeInput(inputId = "countries",
-                      label = "Select Country(ies)",
-                      choices = ctryCodesWithData,
-                      multiple = TRUE
-                      ),
-          
-          uiOutput("intraCountry"),
-          
-          radioButtons(inputId = "nltype",
-                       label = "Nightlight type",
-                       choices = c("OLS", "VIIRS"),
-                       selected = "VIIRS",
-                       inline = T
-                       ),
-          
-          checkboxInput(inputId = "norm_area",
-                        label = "Normalize by Area",
-                        value = FALSE
-                        ),
-  
-          checkboxInput(inputId = "scale_x_log",
-                        label = "Log Scale X",
-                        value = FALSE
-                        ),
-  
-          checkboxInput(inputId = "scale_y_log",
-                        label = "Log Scale Y",
-                        value = FALSE
-                        ),
-          
-          radioButtons(inputId = "graphtype",
-                       label = "Graph type",
-                       choices = c("boxplot", "histogram", "line", "point"),
-                       selected = "boxplot",
-                       inline = T
-                       )
-        ))
+        menuItem("data", tabName = "data")
+        )
       ),
 
       # body

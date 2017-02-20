@@ -5,6 +5,10 @@
 # http://shiny.rstudio.com
 #
 
+if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+
+pacman::p_load(shiny, ggplot2, leaflet, reshape, rgdal, RColorBrewer)
+
 library(shiny)
 library(ggplot2)
 library(leaflet)
@@ -32,15 +36,20 @@ shinyServer(function(input, output, session) {
     })
     
     ctryNlData <- reactive({
+      
+      input$btnDone
+      
+      countries <- isolate(input$countries)
+      
       ctryData <- NULL
 
-      if (length(input$countries) == 1)
+      if (length(countries) == 1)
       {
-        ctryData <- read.csv(getCtryNlDataFnamePath(input$countries))
+        ctryData <- read.csv(getCtryNlDataFnamePath(countries))
       }
-      else if(length(input$countries) > 1)
+      else if(length(countries) > 1)
       {
-        for (ctryCode in input$countries)
+        for (ctryCode in countries)
         {
           temp <- read.csv(getCtryNlDataFnamePath(ctryCode))
           
@@ -61,7 +70,7 @@ shinyServer(function(input, output, session) {
     })
 
     output$intraCountry <- renderUI({
-      if(is.null(input$countries))
+      if(length(input$countries) != 1)
         return()
       
       radioButtons(inputId = "admLevel", 
@@ -140,10 +149,15 @@ shinyServer(function(input, output, session) {
     
     
     output$plotNightLights <- renderPlot({
+      
+      input$btnDone
+      
       if (is.null(ctryNlData()))
         return()
       
-      if (length(input$countries) == 1)
+      countries <- isolate(input$countries)
+      
+      if (length(countries) == 1)
       {
         ctryData <- ctryNlData()
         
@@ -163,7 +177,7 @@ shinyServer(function(input, output, session) {
           ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
         
       }
-      else if (length(input$countries) > 1)
+      else if (length(countries) > 1)
       {
         ctryData <- ctryNlData()
         
@@ -190,7 +204,7 @@ shinyServer(function(input, output, session) {
 
       if (input$graphtype == "boxplot")
       {
-        if (length(input$countries)==1)
+        if (length(countries)==1)
         {
           g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
         }
@@ -203,7 +217,7 @@ shinyServer(function(input, output, session) {
       }
       else if (input$graphtype == "line")
       {
-        if (length(input$countries)==1)
+        if (length(countries)==1)
         {
           ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,input$admLevel], ctryData[,"variable"]), mean, na.rm=T), c(input$admLevel, "variable", "value"))
           
@@ -223,7 +237,7 @@ shinyServer(function(input, output, session) {
         
         g <- ggplot(data=ctryData, aes(x=value))
         
-        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(input$countries)) # Overlay with transparent density plot
+        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
 
       }
 
@@ -259,8 +273,13 @@ shinyServer(function(input, output, session) {
       # entire map is being torn down and recreated).
       
       input$drawMap
+      input$countries
       
-      if (length(input$countries) != 1)
+      countries <- isolate(input$countries)
+      nlYearMonth <- isolate(input$nlYearMonth)
+      admLevel <- input$admLevel
+      
+      if (length(countries) != 1)
       {
         renderText("Please select only one country/region")
         return()
@@ -268,21 +287,25 @@ shinyServer(function(input, output, session) {
       
       lyrs <- ctryAdmLevels()
       
-      lyrNum <- which(lyrs == input$admLevel)
+      lyrNum <- which(lyrs == admLevel) - 1
       
-      ctryPoly <- readOGR(getPolyFnamePath(input$countries), ifelse(is.null(input$admLevel),  getCtryShpLyrName(input$countries,0), getCtryShpLyrName(input$countries,lyrNum)))
+      ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  getCtryShpLyrName(countries,0), getCtryShpLyrName(countries,lyrNum)))
       
-      nlYearMonth <- isolate(substr(gsub("-", "", input$nlYearMonth[1]), 1, 6))
+      nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
       
-      ctryRastName <- getCtryRasterOutputFname(input$countries, nlYearMonth)
+      #ctryRastName <- getCtryRasterOutputFname(countries, nlYm)
       
-      print(input$nlYearMonth)
+      ctryRastName <- paste0(dirRasterOutput, "/", countries, "_", nlYm, ".tif")
+      
+      print(ctryRastName)
       
       ctryRast <- raster(ctryRastName)
       
+      ctryRast <- projectRasterForLeaflet(ctryRast)
+      
       ctryPoly <- spTransform(ctryPoly, wgs84)
       
-      ctryData <- ctryNlData()
+      #ctryData <- ctryNlData()
       
       minColor <- quantile(ctryRast, 0.02)
       maxColor <- quantile(ctryRast, 0.98)
@@ -292,11 +315,11 @@ shinyServer(function(input, output, session) {
       
       pal <- gray.colors(10, 0, 1)
       
-      leaflet(data=ctryPoly) %>% 
-        addTiles() %>%
-        addRasterImage(ctryRast, colors=colorBin(pal, domain=NULL, bins=10, na.color="#00000000")) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, color = "#ffffcc1f", weight=1, smoothFactor = 0.2) #%>%
-        #fitBounds(e@xmin, e@ymin, e@xmax, e@ymax)
+      leaflet(data=ctryPoly) %>%
+        #addTiles() %>%
+        #addRasterImage(ctryRast, project=FALSE, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
+        addRasterImage(ctryRast, colors=pal) %>%
+        addPolygons(fill = FALSE, stroke = TRUE, weight=1, smoothFactor = 0.2)
     })
     
 })

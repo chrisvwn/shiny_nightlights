@@ -5,6 +5,7 @@
 ###A three-in-one project
 
 1. Hopefully will end up as a CRAN package. This will allow R users to play around with nightlights. 
+
 	a. For those who just want the nightlight measurements, one has the option of downloading pre-processed data related to country
 boundaries to the lowest administration level.
 
