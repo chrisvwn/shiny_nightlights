@@ -13,6 +13,7 @@
 #+ debug mode
 #+ verify treatment of ATA i.e. single adm level countries
 #+ logic of getCtryPolyAdmLevelNames esp lvlEngName assignment needs scrutiny
+#+OLS
 
 #Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal crop to extent would be highly desirable though so seeking other gdal-based workarounds
 
