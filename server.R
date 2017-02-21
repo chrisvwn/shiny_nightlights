@@ -66,6 +66,7 @@ shinyServer(function(input, output, session) {
           }
         }
       }
+      print("here:ctrydata")
       return(ctryData)
     })
 
@@ -102,7 +103,7 @@ shinyServer(function(input, output, session) {
         minDate <- min(nlYearCols)
         maxDate <- max(nlYearCols)
                            
-        sliderInput(inputId = "nlYearMonth",
+        sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
                     min = minDate,
                     max = maxDate,
@@ -157,50 +158,24 @@ shinyServer(function(input, output, session) {
       
       countries <- isolate(input$countries)
       
-      if (length(countries) == 1)
-      {
-        ctryData <- ctryNlData()
-        
-        meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
-        
-        meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
-        
-        ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+      ctryData <- ctryNlData()
+      
+      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
+      
+      meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
+      
+      ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
 
-        ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+      ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
 
-        ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
-        
-        ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
-        
-        if (input$norm_area)
-          ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
-        
-      }
-      else if (length(countries) > 1)
-      {
-        ctryData <- ctryNlData()
-        
-        meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
-        
-        meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
-        
-        ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
-
-        ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
-
-        ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
-        
-        ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
-        
-        if (input$norm_area)
-          ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
-      }
-      else
-      {
-        return()
-      }
-
+      ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
+      
+      print ("here: renderplot")
+      
+      ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
+      
+      if (input$norm_area)
+        ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
 
       if (input$graphtype == "boxplot")
       {
