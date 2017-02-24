@@ -40,7 +40,10 @@ shinyServer(function(input, output, session) {
       input$btnDone
       
       countries <- isolate(input$countries)
-      
+
+      if (length(countries)<=0)
+        return()
+            
       ctryData <- NULL
 
       if (length(countries) == 1)
@@ -66,7 +69,19 @@ shinyServer(function(input, output, session) {
           }
         }
       }
+      
+      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
+      
+      meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
+      
+      ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
+      
+      ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+      
+      ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
+      
       print("here:ctrydata")
+      
       return(ctryData)
     })
 
@@ -81,7 +96,10 @@ shinyServer(function(input, output, session) {
     })
 
     output$sliderNlYearMonthRange <- renderUI({
-      if (is.null(ctryNlData()))
+      
+      ctryData <- ctryNlData()
+      
+      if (is.null(ctryData))
       {
         sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
@@ -94,14 +112,8 @@ shinyServer(function(input, output, session) {
       }
       else
       {
-        nlCols <- names(ctryNlData())
-        nlYearCols <- gsub("[^[:digit:]]", "", nlCols[grep("NL_VIIRS", nlCols)])
-        nlYearCols <- sapply(nlYearCols, function(x) paste0(x,"01"))
-        nlYearCols <- as.Date(nlYearCols, "%Y%m%d")
-        
-        
-        minDate <- min(nlYearCols)
-        maxDate <- max(nlYearCols)
+        minDate <- min(ctryData$variable)
+        maxDate <- max(ctryData$variable)
                            
         sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
@@ -115,7 +127,10 @@ shinyServer(function(input, output, session) {
     })
     
     output$sliderNlYearMonth <- renderUI({
-      if (is.null(ctryNlData()))
+      
+      ctryData <- ctryNlData()
+      
+      if (is.null(ctryData))
       {
         sliderInput(inputId = "nlYearMonth",
                     label = "Time",
@@ -128,14 +143,8 @@ shinyServer(function(input, output, session) {
       }
       else
       {
-        nlCols <- names(ctryNlData())
-        nlYearCols <- gsub("[^[:digit:]]", "", nlCols[grep("NL_VIIRS", nlCols)])
-        nlYearCols <- sapply(nlYearCols, function(x) paste0(x,"01"))
-        nlYearCols <- as.Date(nlYearCols, "%Y%m%d")
-        
-        
-        minDate <- min(nlYearCols)
-        maxDate <- max(nlYearCols)
+        minDate <- min(ctryData$variable)
+        maxDate <- max(ctryData$variable)
         
         sliderInput(inputId = "nlYearMonth",
                     label = "Time",
@@ -157,24 +166,15 @@ shinyServer(function(input, output, session) {
         return()
       
       countries <- isolate(input$countries)
+      scale <- input$scale
       
       ctryData <- ctryNlData()
-      
-      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
-      
-      meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
-      
-      ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
-
-      ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
-
-      ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
       
       print ("here: renderplot")
       
       ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
       
-      if (input$norm_area)
+      if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
 
       if (input$graphtype == "boxplot")
@@ -185,7 +185,7 @@ shinyServer(function(input, output, session) {
         }
         else
         {
-          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code))
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code)) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
         }
         
         g <- g + geom_boxplot()# +facet_grid(.~variable)
@@ -216,10 +216,10 @@ shinyServer(function(input, output, session) {
 
       }
 
-      if (input$scale_y_log)
+      if ("scale_y_log" %in% scale)
         g <- g + scale_y_log10()
       
-      if (input$scale_x_log)
+      if ("scale_x_log" %in% scale)
         g <- g + scale_x_log10()
       
       g
@@ -241,6 +241,27 @@ shinyServer(function(input, output, session) {
     
     ##map output ##
     
+    observeEvent(input$admLevel, {
+      admLevel <- input$admLevel
+      countries <- input$countries
+      
+      if (input$drawMap == 0)
+        return()
+      
+      lyrs <- ctryAdmLevels()
+      
+      lyrNum <- which(lyrs == admLevel) - 1
+      
+      ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  yes = getCtryShpLyrName(countries,0), no = getCtryShpLyrName(countries,lyrNum)))
+      
+      proxy <- leafletProxy("map", data=ctryPoly)
+      
+      print("drawing leaflet proxy")
+      proxy %>% 
+        clearShapes() %>% 
+        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0.2, opacity = 0.3)
+
+    })
     
     output$map <- renderLeaflet({
       # Use leaflet() here, and only include aspects of the map that
@@ -252,7 +273,10 @@ shinyServer(function(input, output, session) {
       
       countries <- isolate(input$countries)
       nlYearMonth <- isolate(input$nlYearMonth)
-      admLevel <- input$admLevel
+      admLevel <- isolate(input$admLevel)
+      
+      if (is.null(countries) || is.null(nlYearMonth) || is.null(admLevel))
+        return()
       
       if (length(countries) != 1)
       {
@@ -270,31 +294,38 @@ shinyServer(function(input, output, session) {
       
       #ctryRastName <- getCtryRasterOutputFname(countries, nlYm)
       
-      ctryRastName <- paste0(dirRasterOutput, "/", countries, "_", nlYm, ".tif")
+      #ctryRastName <- paste0(dirRasterOutput, "/", countries, "_", nlYm, ".tif")
       
-      print(ctryRastName)
+      #print(ctryRastName)
       
-      ctryRast <- raster(ctryRastName)
+      #ctryRast <- raster(ctryRastName)
       
-      ctryRast <- projectRasterForLeaflet(ctryRast)
+      #ctryRast <- projectRasterForLeaflet(ctryRast)
       
       ctryPoly <- spTransform(ctryPoly, wgs84)
       
       #ctryData <- ctryNlData()
       
-      minColor <- quantile(ctryRast, 0.02)
-      maxColor <- quantile(ctryRast, 0.98)
+      #minColor <- quantile(ctryRast, 0.02)
+      #maxColor <- quantile(ctryRast, 0.98)
       
       #pal <- brewer.pal(5, "YlGnBu")
       #pal <- pal[length(pal):1]
       
-      pal <- gray.colors(10, 0, 1)
+      #pal <- gray.colors(10, 0, 1)
+      
+      print("drawing leaflet")
+      
+      ctryYearMonth <- paste0(countries, "_", nlYm)
+      
+      message(ctryYearMonth)
       
       leaflet(data=ctryPoly) %>%
-        #addTiles() %>%
+        addTiles() %>%
+        addWMSTiles(baseUrl = "http://localhost/cgi-bin/mapserv?map=test.map", layers = ctryYearMonth, options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=0.5)) %>%
         #addRasterImage(ctryRast, project=FALSE, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
-        addRasterImage(ctryRast, colors=pal) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=1, smoothFactor = 0.2)
+        #addRasterImage(x = ctryRast, colors=pal, layerId = "rasterLayer", opacity = 0.8) %>%
+        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.2, opacity = 0.1, color="#b9b9ea")
     })
     
 })
