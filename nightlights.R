@@ -42,7 +42,7 @@ library(doParallel) #Allows for parallel processing using multiple cores
 
 require(compiler)
 
-enableJIT(3)
+enableJIT(0)
 
 #rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
 
@@ -3223,3 +3223,262 @@ getRastPercentiles <- function(rastFilename)
   return (c(q2,q98))
 }
 
+writeNightlightsMap <- function()
+{
+  tplHead <- "
+MAP
+  IMAGETYPE  PNG
+  EXTENT	-180 -90 180 90  
+  SIZE		800 600
+  SHAPEPATH      /var/www/cgi-bin
+  IMAGECOLOR     \"#ffffffff\"
+  TRANSPARENT 	TRUE
+  SHAPEPATH	/btrfs/shiny_nightlights/outputrasters
+  
+  PROJECTION
+    \"init=epsg:4326\"
+  END
+  
+  OUTPUTFORMAT
+    NAME GEOTIFF
+    DRIVER GDAL/GTiff
+    MIMETYPE image/tiff
+    IMAGEMODE RGB
+    EXTENSION tif
+  END
+  
+  WEB
+    METADATA
+      \"wms_title\" \"Nightlight Rasters\"
+      \"wms_onlineresource\" \"http://localhost/cgi-bin/mapserv?map=nightlights_wms.map\"
+      \"wms_description\" \"nightlights\"
+      \"wms_name\" \"Nightlights\"
+      \"wms_label\" \"Nightlights\"
+      \"wms_srs\" \"EPSG:3857\"
+      \"wms_extent\" \"-180 -90 180 90\"
+      \"wms_formats\" \"GEOTIFF\"
+      \"wms_enable_request\" \"*\"
+    END
+  END"
+  
+  tplLayer <- "
+  LAYER
+    NAME	<VAL_NAME>
+    
+    METADATA
+      \"wms_title\"		\"<VAL_NAME>\"
+      \"wms_enable_request\"	\"*\"
+      \"wms_srs\"			\"EPSG:4326\"
+      \"wms_extent\"		\"<VAL_EXTENT>\"
+      \"wms_include_items\"	\"all\"
+      \"wms_dataurl_format\"	\"text/html\"
+    END
+    
+    EXTENT	<VAL_EXTENT>
+    DATA	\"<VAL_NAME>.tif\"
+    #    TILEINDEX	/btrfs/shiny_nightlights/outputrasters/nightlights_201204.tif
+    #    TILEITEM	\"location\"
+    STATUS	OFF
+    TYPE	RASTER
+    
+    DUMP TRUE
+    PROJECTION
+      \"init=epsg:4326\"
+    END
+    
+    CLASSITEM \"[pixel]\"
+    
+    CLASS
+      NAME \"NODATA\"
+      EXPRESSION ([pixel] = <VAL_NODATA>)
+      
+      STYLE
+      OPACITY 0
+      END
+    END
+    
+    CLASS
+      NAME DEC0
+      EXPRESSION ([pixel] > <VAL_NODATA> AND [pixel] < <VAL_DEC0>)
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#000000\"
+      END
+    END
+    
+    CLASS
+      NAME DEC1
+      EXPRESSION ([pixel] >= <VAL_DEC0> AND [pixel] < <VAL_DEC1> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#5A5A5A\"
+      END
+    END
+    
+    CLASS
+      NAME DEC2
+      EXPRESSION ([pixel] >= <VAL_DEC1>  AND [pixel] < <VAL_DEC2>  )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#7B7B7B\"
+      END
+    END
+    
+    CLASS
+      NAME DEC3
+      EXPRESSION ([pixel] >= <VAL_DEC2> AND [pixel] < <VAL_DEC3> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#949494\"
+      END
+    END
+    
+    CLASS
+      NAME DEC4
+      EXPRESSION ([pixel] >= <VAL_DEC3> AND [pixel] < <VAL_DEC4> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#A8A8A8\"
+      END
+    END
+    
+    CLASS
+      NAME DEC5
+      EXPRESSION ([pixel] >= <VAL_DEC4> AND [pixel] < <VAL_DEC5> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#BABABA\"
+      END
+    END
+    
+    CLASS
+      NAME DEC6
+      EXPRESSION ([pixel] >= <VAL_DEC5> AND [pixel] < <VAL_DEC6> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#CACACA\"
+      END
+    END
+    
+    CLASS
+      NAME DEC7
+      EXPRESSION ([pixel] >= <VAL_DEC6> AND [pixel] < <VAL_DEC7> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#D9D9D9\"
+      END
+    END
+    
+    CLASS
+      NAME DEC8
+      EXPRESSION ([pixel] >= <VAL_DEC7> AND [pixel] < <VAL_DEC8>)
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#E6E6E6\"
+      END
+    END
+    
+    CLASS
+      NAME DEC9
+      EXPRESSION ([pixel] >= <VAL_DEC9> AND [pixel] < <VAL_DEC10> )
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#F3F3F3\"
+      END
+    END
+    
+    CLASS
+      NAME DEC10
+      EXPRESSION ([pixel] > <VAL_DEC10>)
+      
+      STYLE
+      OPACITY 100
+      COLOR \"#FFFFFF\"
+      END
+    END
+  END # MODIS raster layer ends here"
+  
+  fList <- dir(path = dirRasterOutput, pattern = "*.tif$",full.names = T)
+  
+  layers <- NULL
+  nodata <- "-1.69999999999999994e+308"
+
+  tplMap <- tplHead  
+  tplLayers <- ""
+
+  for (f in fList)
+  {
+    tplLyr <- tplLayer
+    
+    message(f)
+    rast <- raster(f)
+    e <- extent(rast)
+    ext <- paste0(e@xmin, " ", e@ymin, " ", e@xmax, " ", e@ymax )
+    qs <- myquantile(rast)
+    q2 <- qs[1]
+    q98 <- qs[2]
+    
+    if (is.na(q2))
+      q2 <- 0
+    
+    if (is.na(q98))
+      q98 <- 0
+    
+    deciles <- seq(q2, q98, length.out = 11)
+    
+    fname <- unlist(stringr::str_split(f, "/"))
+    fname <- last(fname)
+    lyrName <-substr(fname,1,10)
+    
+    tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_NAME>", lyrName)
+    tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_NODATA>", nodata)
+    tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_EXTENT>", ext)
+    
+    for (i in 1:11)
+    {
+      decval <- paste0("<VAL_DEC", i-1,">")
+      tplLyr <- stringr::str_replace_all(tplLyr,  decval, deciles[i])
+    }
+    
+    tplLayers <- paste0(tplLayers, "\n", tplLyr)
+  }
+  
+  tplMap <- paste0(tplMap, "\n", tplLayers, "\nEND #END MAP")
+  
+  write_file(tplMap, "test.map")
+}
+
+myquantile <- function (x) 
+{ 
+  #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
+  vals <- NULL
+  
+  zones <- NULL
+  
+  blocks <- blockSize(x)
+  
+  result <- NULL
+  
+  for (i in 1:blocks$n)
+  {
+    vals <- getValues(x, blocks$row[i], blocks$nrows[i])
+    
+    result <- rbind(result, quantile(vals, c(0.02,0.98),na.rm=T))
+  }
+  
+  result <- colMeans(result, na.rm = T)
+  
+  gc()
+  
+  return(result)
+} 
