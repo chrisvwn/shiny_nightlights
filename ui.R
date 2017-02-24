@@ -51,8 +51,6 @@ alignCenter <- function(el) {
                                 multiple = TRUE
                  ),
                  
-                 uiOutput("intraCountry"),
-                 
                  radioButtons(inputId = "nltype",
                               label = "Nightlight type",
                               choices = c("OLS", "VIIRS"),
@@ -60,29 +58,24 @@ alignCenter <- function(el) {
                               inline = T
                  ),
                  
-                 checkboxInput(inputId = "norm_area",
-                               label = "Normalize by Area",
-                               value = FALSE
-                 ),
+                 actionButton("btnDone", "Done"),
                  
-                 checkboxInput(inputId = "scale_x_log",
-                               label = "Log Scale X",
-                               value = FALSE
-                 ),
+                 uiOutput("intraCountry"),
                  
-                 checkboxInput(inputId = "scale_y_log",
-                               label = "Log Scale Y",
-                               value = FALSE
-                 ),
-                 
-                 radioButtons(inputId = "graphtype",
-                              label = "Graph type",
-                              choices = c("boxplot", "histogram", "line", "point"),
-                              selected = "boxplot",
-                              inline = T
-                 ),
-                 
-                 actionButton("btnDone", "Done")
+                 menuItem(text = "options", tabName = "plots",
+
+                          radioButtons(inputId = "graphtype",
+                                       label = "Graph type",
+                                       choices = c("boxplot", "histogram", "line", "point"),
+                                       selected = "boxplot",
+                                       inline = T
+                          ),
+                          
+                          checkboxGroupInput(inputId = "scale",
+                                        label = "Scale",
+                                        choices = c("norm_area", "scale_x_log", "scale_y_log")
+                          )
+                )
         ),
         
         menuItem("plots", tabName = "plots", selected = TRUE),
