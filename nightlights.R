@@ -3297,115 +3297,115 @@ MAP
       END
     END
     
-    CLASS
-      NAME DEC0
-      EXPRESSION ([pixel] > <VAL_NODATA> AND [pixel] < <VAL_DEC0>)
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#000000\"
-      END
-    END
-    
-    CLASS
-      NAME DEC1
-      EXPRESSION ([pixel] >= <VAL_DEC0> AND [pixel] < <VAL_DEC1> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#5A5A5A\"
-      END
-    END
-    
-    CLASS
-      NAME DEC2
-      EXPRESSION ([pixel] >= <VAL_DEC1>  AND [pixel] < <VAL_DEC2>  )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#7B7B7B\"
-      END
-    END
-    
-    CLASS
-      NAME DEC3
-      EXPRESSION ([pixel] >= <VAL_DEC2> AND [pixel] < <VAL_DEC3> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#949494\"
-      END
-    END
-    
-    CLASS
-      NAME DEC4
-      EXPRESSION ([pixel] >= <VAL_DEC3> AND [pixel] < <VAL_DEC4> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#A8A8A8\"
-      END
-    END
-    
-    CLASS
-      NAME DEC5
-      EXPRESSION ([pixel] >= <VAL_DEC4> AND [pixel] < <VAL_DEC5> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#BABABA\"
-      END
-    END
-    
-    CLASS
-      NAME DEC6
-      EXPRESSION ([pixel] >= <VAL_DEC5> AND [pixel] < <VAL_DEC6> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#CACACA\"
-      END
-    END
-    
-    CLASS
-      NAME DEC7
-      EXPRESSION ([pixel] >= <VAL_DEC6> AND [pixel] < <VAL_DEC7> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#D9D9D9\"
-      END
-    END
-    
-    CLASS
-      NAME DEC8
-      EXPRESSION ([pixel] >= <VAL_DEC7> AND [pixel] < <VAL_DEC8>)
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#E6E6E6\"
-      END
-    END
-    
-    CLASS
-      NAME DEC9
-      EXPRESSION ([pixel] >= <VAL_DEC9> AND [pixel] < <VAL_DEC10> )
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#F3F3F3\"
-      END
-    END
-    
-    CLASS
-      NAME DEC10
-      EXPRESSION ([pixel] > <VAL_DEC10>)
-      
-      STYLE
-      OPACITY 100
-      COLOR \"#FFFFFF\"
-      END
-    END
+#     CLASS
+#       NAME DEC0
+#       EXPRESSION ([pixel] > <VAL_NODATA> AND [pixel] < <VAL_DEC0>)
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#000000\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC1
+#       EXPRESSION ([pixel] >= <VAL_DEC0> AND [pixel] < <VAL_DEC1> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#5A5A5A\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC2
+#       EXPRESSION ([pixel] >= <VAL_DEC1>  AND [pixel] < <VAL_DEC2>  )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#7B7B7B\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC3
+#       EXPRESSION ([pixel] >= <VAL_DEC2> AND [pixel] < <VAL_DEC3> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#949494\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC4
+#       EXPRESSION ([pixel] >= <VAL_DEC3> AND [pixel] < <VAL_DEC4> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#A8A8A8\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC5
+#       EXPRESSION ([pixel] >= <VAL_DEC4> AND [pixel] < <VAL_DEC5> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#BABABA\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC6
+#       EXPRESSION ([pixel] >= <VAL_DEC5> AND [pixel] < <VAL_DEC6> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#CACACA\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC7
+#       EXPRESSION ([pixel] >= <VAL_DEC6> AND [pixel] < <VAL_DEC7> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#D9D9D9\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC8
+#       EXPRESSION ([pixel] >= <VAL_DEC7> AND [pixel] < <VAL_DEC8>)
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#E6E6E6\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC9
+#       EXPRESSION ([pixel] >= <VAL_DEC9> AND [pixel] < <VAL_DEC10> )
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#F3F3F3\"
+#       END
+#     END
+#     
+#     CLASS
+#       NAME DEC10
+#       EXPRESSION ([pixel] > <VAL_DEC10>)
+#       
+#       STYLE
+#       OPACITY 100
+#       COLOR \"#FFFFFF\"
+#       END
+#     END
   END # MODIS raster layer ends here"
   
   fList <- dir(path = dirRasterOutput, pattern = "*.tif$",full.names = T)

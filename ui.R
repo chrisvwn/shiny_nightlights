@@ -100,6 +100,7 @@ alignCenter <- function(el) {
                    ),
 
           tabItem(tabName = "maps",
+                  tags$style(type = "text/css", "#map {height: calc(100vh - 80px) !important;}"),
                   leafletOutput("map"),
                   
                   uiOutput("sliderNlYearMonth"),

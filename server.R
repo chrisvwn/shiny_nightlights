@@ -241,6 +241,18 @@ shinyServer(function(input, output, session) {
     
     ##map output ##
     
+#     observe({
+#       if(!exists("nlYearMonth"))
+#         return()
+#       
+#       nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
+#       ctryYearMonth <- paste0(countries, "_", nlYm)
+#       
+#       leafletProxy("map") %>%
+#         clearTiles("nlRaster") %>%
+#         addWMSTiles(baseUrl = "http://localhost/cgi-bin/mapserv?map=test.map", layers = ctryYearMonth, options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=0.5), layerId="nlRaster")
+#     })
+    
     observeEvent(input$admLevel, {
       admLevel <- input$admLevel
       countries <- input$countries
@@ -259,7 +271,7 @@ shinyServer(function(input, output, session) {
       print("drawing leaflet proxy")
       proxy %>% 
         clearShapes() %>% 
-        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0.2, opacity = 0.3)
+        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0.2, opacity = 0.5, color="green")
 
     })
     
@@ -292,27 +304,7 @@ shinyServer(function(input, output, session) {
       
       nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
       
-      #ctryRastName <- getCtryRasterOutputFname(countries, nlYm)
-      
-      #ctryRastName <- paste0(dirRasterOutput, "/", countries, "_", nlYm, ".tif")
-      
-      #print(ctryRastName)
-      
-      #ctryRast <- raster(ctryRastName)
-      
-      #ctryRast <- projectRasterForLeaflet(ctryRast)
-      
       ctryPoly <- spTransform(ctryPoly, wgs84)
-      
-      #ctryData <- ctryNlData()
-      
-      #minColor <- quantile(ctryRast, 0.02)
-      #maxColor <- quantile(ctryRast, 0.98)
-      
-      #pal <- brewer.pal(5, "YlGnBu")
-      #pal <- pal[length(pal):1]
-      
-      #pal <- gray.colors(10, 0, 1)
       
       print("drawing leaflet")
       
@@ -321,11 +313,13 @@ shinyServer(function(input, output, session) {
       message(ctryYearMonth)
       
       leaflet(data=ctryPoly) %>%
-        addTiles() %>%
-        addWMSTiles(baseUrl = "http://localhost/cgi-bin/mapserv?map=test.map", layers = ctryYearMonth, options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=0.5)) %>%
+        #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
+        addTiles %>%
+        addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
         #addRasterImage(ctryRast, project=FALSE, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
         #addRasterImage(x = ctryRast, colors=pal, layerId = "rasterLayer", opacity = 0.8) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.2, opacity = 0.1, color="#b9b9ea")
+        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.2, opacity = 0.5, color="green") %>%
+        addLayersControl(options = layersControlOptions(collapsed = FALSE))
     })
     
 })
