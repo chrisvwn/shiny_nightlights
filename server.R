@@ -7,10 +7,11 @@
 
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(shiny, ggplot2, leaflet, reshape, rgdal, RColorBrewer)
+pacman::p_load(shiny, ggplot2, plotly, leaflet, reshape, rgdal, RColorBrewer)
 
 library(shiny)
 library(ggplot2)
+library(plotly)
 library(leaflet)
 library(reshape)
 library(rgdal)
@@ -18,12 +19,12 @@ library(RColorBrewer)
 
 source("nightlights.R")
 
-shinyServer(function(input, output, session) {
+shinyServer(function(input, output, session){
 
-  yrs <- getAllNlYears("VIIRS")
+  #yrs <- getAllNlYears("VIIRS")
   
   #isolate({updateTabItems(session, "inputs", "plotNightLights")})
-    
+
     ctryAdmLevels <- reactive({
       if (length(input$countries) != 1)
         return()
@@ -35,9 +36,22 @@ shinyServer(function(input, output, session) {
       cols <- cols[-grep("area|NL_", cols)]
     })
     
+    ctryAdmLevelNames <- reactive({
+      if (length(input$countries) != 1)
+        return()
+
+      data <- read.csv(getCtryNlDataFnamePath(input$countries), header = T)
+      
+      cols <- names(data)
+      
+      cols <- cols[-grep("area|NL_", cols)]
+      
+      data[,cols]
+    })
+    
     ctryNlData <- reactive({
       
-      input$btnDone
+      input$btnCtry
       
       countries <- isolate(input$countries)
 
@@ -85,16 +99,173 @@ shinyServer(function(input, output, session) {
       return(ctryData)
     })
 
-    output$intraCountry <- renderUI({
-      if(length(input$countries) != 1)
+#     output$intraCountry <- renderUI({
+#       if(length(input$countries) != 1)
+#         return()
+#       
+#       radioButtons(inputId = "admLevel", 
+#                      label = "Admin Level", 
+#                      choices = ctryAdmLevels()
+#                    )
+#     })
+
+    values <- reactiveValues(
+      lastUpdated = NULL
+    )
+    
+    observe({
+      lapply(names(input), function(x) {
+        observe({
+          input[[x]]
+          if (length(grep("selectAdm", x))>0)
+            values$lastUpdated <- x
+        })
+      })
+    })
+    
+    observe({
+      
+      #input$btnIntraCtry
+
+      admLvlCtrlsNames <- names(input)
+      
+      x <- admLvlCtrlsNames[grep("selectAdm", admLvlCtrlsNames)]
+      
+      if(length(x)==0)
         return()
       
-      radioButtons(inputId = "admLevel", 
-                     label = "Admin Level", 
-                     choices = ctryAdmLevels()
-                   )
-    })
+      #if (input$btnIntraCtry > 0)
+      #isolate({
+        #lapply(1:length(x), function(i) eval(parse(text=paste0("isolate(\"input[[",x[i],"]]\")"))))
+  
+      ctryAdmLevelNames <- ctryAdmLevelNames()
+      
+      ctryAdmLevelNamesFilter <- ctryAdmLevelNames
+      
+      ctryAdmLevels <- ctryAdmLevels()
+      
+      lvlNum <- gsub("[^[:digit:]]", "",values$lastUpdated) #gsub("[^[:digit:]]", "", x)
+      
+      if(length(lvlNum)==0)
+        return()
+      
+      print(paste0("lastupdated:",values$lastUpdated))
+      
+      print(paste0("x:",x))
+      print(paste0("lvlnum:",lvlNum))
+      
+      for (lvlIdx in 2:length(ctryAdmLevels))
+      {
+        lvlSelect <- ""
+        top10 <- ""
+        
+        if (lvlIdx < lvlNum)
+        {
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          
+          if (length(input[[paste0("selectAdm", lvlIdx-1)]]) == 1)
+          {
+          ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+          lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+          }
+          else
+          {
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+          }
+          print(paste0("lvlSelect:",lvlSelect))
+          
+          #print(paste0("lvlselect: ", lvlSelect))
+          #print(paste0("top10: ", top10))
+          
+          #updateCheckboxInput(session, paste0("radioAdm", lvlIdx),value = TRUE)
+          
+          updateSelectInput(session, paste0("selectAdm",lvlIdx), choices = lvlSelect, selected = input[[paste0("selectAdm",lvlIdx)]])
+        }
+        else if(lvlIdx == lvlNum)
+        {
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          
+          if (length(input[[paste0("selectAdm", lvlIdx-1)]]) == 1)
+          {
+            ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            
+            #top10 <- if(length(lvlSelect) > 1) lvlSelect[1] else no = lvlSelect
+            
+            #print(paste0("lvlselect: ", lvlSelect))
+            #print(paste0("top10: ", top10))
+            
+            #updateCheckboxInput(session, paste0("radioAdm", lvlIdx),value = TRUE)
+            
+            # if (length(input[[paste0("radioAdm", lvlIdx)]])==0)
+              updateSelectizeInput(session, paste0("selectAdm",lvlIdx), choices = lvlSelect, selected = input[[paste0("selectAdm",lvlIdx)]])
+          }else
+          {
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = NULL, selected = NULL)
+          }
+        }
+        else
+        {
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          
+          if(length(input[[paste0("selectAdm",lvlIdx-1)]]) == 1)
+          {
+            ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            #updateCheckboxInput(session, paste0("radioAdm", lvlIdx),value = FALSE)
 
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
+          }
+          else if(length(input[[paste0("selectAdm",lvlIdx-1)]]) == 0 && length(input[[paste0("selectAdm", lvlNum)]])==1)
+          {
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
+          }
+          else
+          {
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = "", selected = NULL)
+          }
+        }
+      }
+      #})
+    })
+  #})
+
+    output$intraCountry <- renderUI({
+
+      #input$btnIntraCtry
+      print("")
+      countries <- input$countries
+      
+      if(length(countries) != 1)
+        return()      
+      
+      ctryAdmLevels <- ctryAdmLevels()
+
+      ctryAdmLevelNames <- ctryAdmLevelNames()
+
+      elems <- lapply(2:length(ctryAdmLevels), function(lvlIdx) {
+        
+        lvl <- ctryAdmLevels[lvlIdx]
+        
+        lvlSelect <- unique(ctryAdmLevelNames[[ctryAdmLevels[lvlIdx]]])
+
+#         a <- checkboxInput(inputId = paste0("radioAdm", lvlIdx),
+#                      label = ctryAdmLevels[lvlIdx], 
+#                      value = FALSE
+#         )
+        
+        b <- selectizeInput(inputId = paste0("selectAdm", lvlIdx),
+                       label = ctryAdmLevels[lvlIdx],
+                       choices = lvlSelect,
+                       selected = NULL,
+                       multiple = TRUE
+                       )
+        
+        #list(a,b)
+      })
+    })
+    
     output$sliderNlYearMonthRange <- renderUI({
       
       ctryData <- ctryNlData()
@@ -158,45 +329,81 @@ shinyServer(function(input, output, session) {
     })
     
     
-    output$plotNightLights <- renderPlot({
+    output$plotNightLights <- renderPlotly({
       
-      input$btnDone
-      
-      if (is.null(ctryNlData()))
-        return()
+      input$btnCtry
       
       countries <- isolate(input$countries)
+      
+      admLvlCtrlNames <- names(input)
+      
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
+      
+      isolate({
+      admLvlNum<-""
+      for (i in x)
+        if(length(input[[i]])>0)
+          admLvlNum <- i
+      
+      print(paste0("x", x))
+      print(paste0("admlvlnum:", admLvlNum))
+      
+      if (admLvlNum=="")
+        return()
+      
+      admLvlNum <- gsub("[^[:digit:]]","",admLvlNum)
+      
+      ctryAdmLevels <- ctryAdmLevels()
+      admLevel <- ctryAdmLevels[as.numeric(admLvlNum)]
+      
+      print(paste0("admLevel:", admLevel))
+      
       scale <- input$scale
+      nlYearMonthRange <- input$nlYearMonthRange
+      graphType <- input$graphType
       
       ctryData <- ctryNlData()
-      
+
+      if (is.null(countries) || is.null(ctryData))
+        return()
+            
       print ("here: renderplot")
       
-      ctryData <- subset(ctryData, variable >= input$nlYearMonthRange[1] & variable <= input$nlYearMonthRange[2])
+      ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
+      
+      for (lvl in 2:length(ctryAdmLevels))
+      {
+        print(paste0("lvl:",lvl))
+        
+        if (length(input[[x[lvl-1]]])>0)
+        {
+          ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
+        }
+      }
       
       if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
 
-      if (input$graphtype == "boxplot")
+      if (graphType == "boxplot")
       {
         if (length(countries)==1)
         {
-          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[,admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         else
         {
-          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code)) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code)) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         
         g <- g + geom_boxplot()# +facet_grid(.~variable)
       }
-      else if (input$graphtype == "line")
+      else if (graphType == "line")
       {
         if (length(countries)==1)
         {
-          ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,input$admLevel], ctryData[,"variable"]), mean, na.rm=T), c(input$admLevel, "variable", "value"))
+          ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
           
-          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,input$admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=input$admLevel)
+          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         else
         {
@@ -204,15 +411,15 @@ shinyServer(function(input, output, session) {
           g <- ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
         }
 
-        g <- g+ geom_line(size=1.1) + geom_point()
+        g <- g+ geom_line() + geom_point()
       }
-      else if (input$graphtype == "histogram")
+      else if (graphType == "histogram")
       {
         #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
         
         g <- ggplot(data=ctryData, aes(x=value))
         
-        g <- g + geom_histogram(aes(y=..density..), bins = 100, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
+        g <- g + geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
 
       }
 
@@ -222,7 +429,9 @@ shinyServer(function(input, output, session) {
       if ("scale_x_log" %in% scale)
         g <- g + scale_x_log10()
       
-      g
+      ggplotly(g)
+      
+      })
     })
     
     output$dataset <- DT::renderDataTable({
@@ -271,7 +480,7 @@ shinyServer(function(input, output, session) {
       print("drawing leaflet proxy")
       proxy %>% 
         clearShapes() %>% 
-        addPolygons(fill = FALSE, stroke = TRUE, weight=2, smoothFactor = 0.2, opacity = 0.5, color="green")
+        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green")
 
     })
     
@@ -318,7 +527,7 @@ shinyServer(function(input, output, session) {
         addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
         #addRasterImage(ctryRast, project=FALSE, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
         #addRasterImage(x = ctryRast, colors=pal, layerId = "rasterLayer", opacity = 0.8) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.2, opacity = 0.5, color="green") %>%
+        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green") %>%
         addLayersControl(options = layersControlOptions(collapsed = FALSE))
     })
     
