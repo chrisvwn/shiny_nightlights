@@ -7,7 +7,7 @@
 
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(shiny, shinydashboard, leaflet)
+pacman::p_load(shiny, shinydashboard, leaflet, plotly)
 
 suppressMessages(library(shiny))
 
@@ -16,6 +16,8 @@ suppressMessages(library(shinydashboard))
 suppressMessages(library(leaflet))
 
 suppressMessages(source("nightlights.R"))
+
+suppressMessages(library(plotly))
 
 
 filenames<-list.files(dirNlData)
@@ -51,20 +53,22 @@ alignCenter <- function(el) {
                                 multiple = TRUE
                  ),
                  
-                 radioButtons(inputId = "nltype",
-                              label = "Nightlight type",
-                              choices = c("OLS", "VIIRS"),
-                              selected = "VIIRS",
-                              inline = T
-                 ),
-                 
-                 actionButton("btnDone", "Done"),
-                 
+#                  radioButtons(inputId = "nltype",
+#                               label = "Nightlight type",
+#                               choices = c("OLS", "VIIRS"),
+#                               selected = "VIIRS",
+#                               inline = T
+#                  ),
+#                  
                  uiOutput("intraCountry"),
+
+                 actionButton("btnCtry", "Go"),
+
+#                 actionButton("btnIntraCtry", "Done"),
                  
                  menuItem(text = "options", tabName = "plots",
 
-                          radioButtons(inputId = "graphtype",
+                          radioButtons(inputId = "graphType",
                                        label = "Graph type",
                                        choices = c("boxplot", "histogram", "line", "point"),
                                        selected = "boxplot",
@@ -94,7 +98,7 @@ alignCenter <- function(el) {
       dashboardBody(
         tabItems(
           tabItem(tabName = "plots",
-                   plotOutput(outputId = "plotNightLights"),
+                   plotlyOutput(outputId = "plotNightLights"),
                    
                    uiOutput("sliderNlYearMonthRange")
                    ),
