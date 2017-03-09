@@ -223,7 +223,9 @@ shinyServer(function(input, output, session){
           }
           else
           {
-            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = "", selected = NULL)
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
           }
         }
       }
@@ -335,29 +337,6 @@ shinyServer(function(input, output, session){
       
       countries <- isolate(input$countries)
       
-      admLvlCtrlNames <- names(input)
-      
-      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
-      
-      isolate({
-      admLvlNum<-""
-      for (i in x)
-        if(length(input[[i]])>0)
-          admLvlNum <- i
-      
-      print(paste0("x", x))
-      print(paste0("admlvlnum:", admLvlNum))
-      
-      if (admLvlNum=="")
-        return()
-      
-      admLvlNum <- gsub("[^[:digit:]]","",admLvlNum)
-      
-      ctryAdmLevels <- ctryAdmLevels()
-      admLevel <- ctryAdmLevels[as.numeric(admLvlNum)]
-      
-      print(paste0("admLevel:", admLevel))
-      
       scale <- input$scale
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
@@ -368,11 +347,44 @@ shinyServer(function(input, output, session){
         return()
             
       print ("here: renderplot")
+
+      admLvlCtrlNames <- names(input)
       
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
+      
+      isolate({
+        admLvlNums <- NULL
+        for (i in x)
+          if(length(input[[i]])>0)
+            admLvlNums <- c(admLvlNums, i)
+          
+          
+        print(paste0("x", x))
+        print(paste0("admlvlnums:", admLvlNums))
+        
+        #if (admLvlNum=="" && length(countries)>0)
+        #  return()
+        
+        admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+        
+        if (length(admLvlNums)==0)
+          admLvlNums <- 1
+        
+        ctryAdmLevels <- ctryAdmLevels()
+        admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
+        
+        print(paste0("admLevel:", admLevel))
+        
+        if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
+          admLevel <- "country_code"
+          
       ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
       
-      for (lvl in 2:length(ctryAdmLevels))
+      for (lvl in admLvlNums)
       {
+        if (lvl == 1)
+          next()
+        
         print(paste0("lvl:",lvl))
         
         if (length(input[[x[lvl-1]]])>0)
@@ -380,6 +392,8 @@ shinyServer(function(input, output, session){
           ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
         }
       }
+      
+      print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km

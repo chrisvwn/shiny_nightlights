@@ -70,8 +70,8 @@ alignCenter <- function(el) {
 
                           radioButtons(inputId = "graphType",
                                        label = "Graph type",
-                                       choices = c("boxplot", "histogram", "line", "point"),
-                                       selected = "boxplot",
+                                       choices = c("line", "boxplot", "histogram", "point"),
+                                       selected = "line",
                                        inline = T
                           ),
                           
