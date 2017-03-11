@@ -25,7 +25,11 @@ shinyServer(function(input, output, session){
   
   #isolate({updateTabItems(session, "inputs", "plotNightLights")})
 
+  #### reactive ctryAdmLevels ####
+  
     ctryAdmLevels <- reactive({
+      print(paste0("here: ctryAdmLevels"))
+      
       if (length(input$countries) != 1)
         return()
 
@@ -36,11 +40,17 @@ shinyServer(function(input, output, session){
       cols <- cols[-grep("area|NL_", cols)]
     })
     
+    #### reactive ctryAdmLevelNames ####
+    
     ctryAdmLevelNames <- reactive({
-      if (length(input$countries) != 1)
+      print(paste0("here: ctryAdmLevelNames"))
+      
+      countries <- input$countries
+      
+      if (length(countries) != 1)
         return()
 
-      data <- read.csv(getCtryNlDataFnamePath(input$countries), header = T)
+      data <- read.csv(getCtryNlDataFnamePath(countries), header = T)
       
       cols <- names(data)
       
@@ -49,13 +59,14 @@ shinyServer(function(input, output, session){
       data[,cols]
     })
     
+    #### reactive ctryNlData ####
     ctryNlData <- reactive({
-      
+      print(paste0("here: ctryNlData"))
       input$btnCtry
       
       countries <- isolate(input$countries)
 
-      if (length(countries)<=0)
+      if (length(countries)<1)
         return()
             
       ctryData <- NULL
@@ -94,38 +105,84 @@ shinyServer(function(input, output, session){
       
       ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
       
-      print("here:ctrydata")
-      
       return(ctryData)
     })
 
-#     output$intraCountry <- renderUI({
-#       if(length(input$countries) != 1)
-#         return()
-#       
-#       radioButtons(inputId = "admLevel", 
-#                      label = "Admin Level", 
-#                      choices = ctryAdmLevels()
-#                    )
-#     })
-
+    #### reactiveValues values ####
+    
     values <- reactiveValues(
+      a=print(paste0("here: lastUpdated")),
       lastUpdated = NULL
     )
     
+    #### observe lastUpdated ####
+    
     observe({
-      lapply(names(input), function(x) {
+      print(paste0("here: observe lastUpdated"))
+      
+      y <- names(input)
+      y <- y[grep("selectAdm", y)]
+      
+      lapply(y, function(x) {
         observe({
-          input[[x]]
-          if (length(grep("selectAdm", x))>0)
+          #if (length(grep("selectAdm", x)) >0)
             values$lastUpdated <- x
-        })
+        });
+        print (paste0("lastUpdated:",x))
       })
     })
     
-    observe({
+    output$intraCountry1 <- renderUI({
+      if(length(input$countries) != 1)
+        return()
       
-      #input$btnIntraCtry
+      radioButtons(inputId = "admLevel", 
+                     label = "Admin Level", 
+                     choices = ctryAdmLevels()
+                   )
+    })
+    
+    #### render UI: intraCountry ####
+    
+    output$intraCountry <- renderUI({
+      
+      print("here: renderUI intracountry")
+      countries <- input$countries
+      
+      if(length(countries) != 1)
+        return()
+      
+      ctryAdmLevels <- ctryAdmLevels()
+      
+      ctryAdmLevelNames <- ctryAdmLevelNames()
+      
+      if (length(ctryAdmLevelNames)>1)
+        elems <- lapply(2:length(ctryAdmLevels), function(lvlIdx){
+          
+          lvl <- ctryAdmLevels[lvlIdx]
+          
+          lvlSelect <- unique(ctryAdmLevelNames[[ctryAdmLevels[lvlIdx]]])
+          
+          #         a <- checkboxInput(inputId = paste0("radioAdm", lvlIdx),
+          #                      label = ctryAdmLevels[lvlIdx], 
+          #                      value = FALSE
+          #         )
+          
+          b <- selectizeInput(inputId = paste0("selectAdm", lvlIdx),
+                              label = ctryAdmLevels[lvlIdx],
+                              choices = lvlSelect,
+                              selected = NULL,
+                              multiple = TRUE
+          )
+          
+          #list(a,b)
+        })
+    })
+    
+    #### observe selectAdms (intraCountry) ####
+    
+    observe({
+      print(paste0("here: observe selectAdms"))
 
       admLvlCtrlsNames <- names(input)
       
@@ -133,11 +190,7 @@ shinyServer(function(input, output, session){
       
       if(length(x)==0)
         return()
-      
-      #if (input$btnIntraCtry > 0)
-      #isolate({
-        #lapply(1:length(x), function(i) eval(parse(text=paste0("isolate(\"input[[",x[i],"]]\")"))))
-  
+
       ctryAdmLevelNames <- ctryAdmLevelNames()
       
       ctryAdmLevelNamesFilter <- ctryAdmLevelNames
@@ -154,10 +207,15 @@ shinyServer(function(input, output, session){
       print(paste0("x:",x))
       print(paste0("lvlnum:",lvlNum))
       
+      multipleSelected <- FALSE
+      
       for (lvlIdx in 2:length(ctryAdmLevels))
       {
         lvlSelect <- ""
         top10 <- ""
+        
+        if (length(input[[paste0("selectAdm", lvlIdx)]]) > 1)
+          multipleSelected <- TRUE
         
         if (lvlIdx < lvlNum)
         {
@@ -172,7 +230,7 @@ shinyServer(function(input, output, session){
           {
             lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
           }
-          print(paste0("lvlSelect:",lvlSelect))
+          #print(paste0("lvlSelect:",lvlSelect))
           
           #print(paste0("lvlselect: ", lvlSelect))
           #print(paste0("top10: ", top10))
@@ -208,6 +266,12 @@ shinyServer(function(input, output, session){
         {
           print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
           
+          if (multipleSelected)
+          {
+            updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = "", selected = NULL)
+            next()
+          }
+          
           if(length(input[[paste0("selectAdm",lvlIdx-1)]]) == 1)
           {
             ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
@@ -233,43 +297,11 @@ shinyServer(function(input, output, session){
     })
   #})
 
-    output$intraCountry <- renderUI({
 
-      #input$btnIntraCtry
-      print("")
-      countries <- input$countries
-      
-      if(length(countries) != 1)
-        return()      
-      
-      ctryAdmLevels <- ctryAdmLevels()
-
-      ctryAdmLevelNames <- ctryAdmLevelNames()
-
-      elems <- lapply(2:length(ctryAdmLevels), function(lvlIdx) {
-        
-        lvl <- ctryAdmLevels[lvlIdx]
-        
-        lvlSelect <- unique(ctryAdmLevelNames[[ctryAdmLevels[lvlIdx]]])
-
-#         a <- checkboxInput(inputId = paste0("radioAdm", lvlIdx),
-#                      label = ctryAdmLevels[lvlIdx], 
-#                      value = FALSE
-#         )
-        
-        b <- selectizeInput(inputId = paste0("selectAdm", lvlIdx),
-                       label = ctryAdmLevels[lvlIdx],
-                       choices = lvlSelect,
-                       selected = NULL,
-                       multiple = TRUE
-                       )
-        
-        #list(a,b)
-      })
-    })
+    #### sliderNlYearMonthRange ####
     
     output$sliderNlYearMonthRange <- renderUI({
-      
+      print(paste0("here: sliderNlYearMonthRange"))
       ctryData <- ctryNlData()
       
       if (is.null(ctryData))
@@ -299,7 +331,10 @@ shinyServer(function(input, output, session){
       }
     })
     
+    #### sliderNlYearMonth ####
+    
     output$sliderNlYearMonth <- renderUI({
+      print(paste0("here: sliderNlYearMonth"))
       
       ctryData <- ctryNlData()
       
@@ -330,12 +365,16 @@ shinyServer(function(input, output, session){
       }
     })
     
+    ####renderPlotly####
     
     output$plotNightLights <- renderPlotly({
-      
+      print(paste0("here: renderPlot"))
       input$btnCtry
       
       countries <- isolate(input$countries)
+      
+      if (is.null(countries))
+        return()
       
       scale <- input$scale
       nlYearMonthRange <- input$nlYearMonthRange
@@ -346,8 +385,6 @@ shinyServer(function(input, output, session){
       if (is.null(countries) || is.null(ctryData))
         return()
             
-      print ("here: renderplot")
-
       admLvlCtrlNames <- names(input)
       
       x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
@@ -443,6 +480,11 @@ shinyServer(function(input, output, session){
       if ("scale_x_log" %in% scale)
         g <- g + scale_x_log10()
       
+      if ("norm_area" %in% scale)
+        g <- g + labs(title="Nightlight Radiances", x = "Month", y = expression(paste("Avg Rad W" %.% "Sr" ^{-1} %.% "cm" ^{-2}, "per Km" ^{2})))
+      else
+        g <- g + labs(title="Nightlight Radiances", x = "Month", y = expression(~Total~Rad~W %.% Sr^{-1}%.%cm^{-2}))
+      
       ggplotly(g)
       
       })
@@ -477,6 +519,7 @@ shinyServer(function(input, output, session){
 #     })
     
     observeEvent(input$admLevel, {
+      print(paste0("here: observe admLevel 2 update map"))
       admLevel <- input$admLevel
       countries <- input$countries
       
@@ -499,6 +542,7 @@ shinyServer(function(input, output, session){
     })
     
     output$map <- renderLeaflet({
+      print(paste0("here: draw leaflet map"))
       # Use leaflet() here, and only include aspects of the map that
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).

@@ -53,16 +53,11 @@ alignCenter <- function(el) {
                                 multiple = TRUE
                  ),
                  
-#                  radioButtons(inputId = "nltype",
-#                               label = "Nightlight type",
-#                               choices = c("OLS", "VIIRS"),
-#                               selected = "VIIRS",
-#                               inline = T
-#                  ),
-#                  
-                 uiOutput("intraCountry"),
+                 uiOutput(outputId = "intraCountry"),
+                 
+                 uiOutput("intraCountry1"),
 
-                 actionButton("btnCtry", "Go"),
+                 actionButton("btnCtry", "Plot"),
 
 #                 actionButton("btnIntraCtry", "Done"),
                  
@@ -111,19 +106,19 @@ alignCenter <- function(el) {
                   
                   actionButton(inputId="drawMap",
                                label = "Draw Map")
-                  ),
-
-          tabItem(tabName = "stats",
-                   textOutput("Stats")
-                  ),
-          
-          tabItem(tabName = "models",
-                   textOutput("Models")
-                   ),
-          
-          tabItem(tabName = "Data",
-                   DT::dataTableOutput(outputId = "dataset")
-                   )
+                  )
+# 
+#           tabItem(tabName = "stats",
+#                    textOutput("Stats")
+#                   ),
+#           
+#           tabItem(tabName = "models",
+#                    textOutput("Models")
+#                    ),
+#           
+#           tabItem(tabName = "Data",
+#                    DT::dataTableOutput(outputId = "dataset")
+#                    )
         )
       )
     )
