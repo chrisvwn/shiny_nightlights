@@ -560,7 +560,9 @@ shinyServer(function(input, output, session){
       
       input$drawMap
       input$countries
-      
+
+#      if (input$drawMap > 0)
+        isolate({
       countries <- isolate(input$countries)
       nlYearMonth <- isolate(input$nlYearMonth)
       admLevel <- isolate(input$admLevel)
@@ -593,11 +595,16 @@ shinyServer(function(input, output, session){
 
       #get the selected admLevel and convert to lyrnum
       lyrs <- ctryAdmLevels()
-      
+
+      #line weight increases. max=4 min=1
+      deltaLineWt <- (4 - 1) / as.numeric(lyrNum)
+            
       lyrNum <- which(lyrs == admLevel) - 1
 
       nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
 
+      
+      
       print("drawing leaflet")
       
       ctryYearMonth <- paste0(countries, "_", nlYm)
@@ -619,7 +626,7 @@ shinyServer(function(input, output, session){
           
           ctryPoly <- spTransform(ctryPoly, wgs84)
           
-          if(iterAdmLevel == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
+          if(iterAdmLevel+1 == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
             selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel)]] %in% input[[paste0("selectAdm", iterAdmLevel+1)]])
           else
             selected <- c()
@@ -628,16 +635,35 @@ shinyServer(function(input, output, session){
           {
             if (iterPoly %in% selected)
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=iterAdmLevel+1.2, smoothFactor = 0.7, opacity = 1, color="yellow")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="yellow")
+              
+              e <- extent(ctryPoly[iterPoly,])
+              if (exists("mapExtent"))
+              {
+                mapExtent@xmin <- min(mapExtent@xmin, e@xmin)
+                mapExtent@ymin <- min(mapExtent@ymin, e@ymin)
+                mapExtent@xmax <- max(mapExtent@xmax, e@xmax)
+                mapExtent@ymax <- max(mapExtent@ymax, e@ymax)
+              }
+              else
+              {
+                mapExtent <- e
+              }
             }
             else
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = FALSE, stroke = TRUE, weight=iterAdmLevel+1, smoothFactor = 0.7, opacity = 1, color="green")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = FALSE, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="green")
               
             }
           }
         }
+      map %>% addLayersControl("map")
+
+      if (exists("mapExtent"))
+        map <- map %>% fitBounds(mapExtent@xmin, mapExtent@ymin, mapExtent@xmax, mapExtent@ymax)
+      
       map
+      })
     })
     
 })
