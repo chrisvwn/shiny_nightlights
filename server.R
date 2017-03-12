@@ -118,17 +118,11 @@ shinyServer(function(input, output, session){
     #### observe lastUpdated ####
     
     observe({
-      print(paste0("here: observe lastUpdated"))
-      
-      y <- names(input)
-      y <- y[grep("selectAdm", y)]
-      
-      lapply(y, function(x) {
+      lapply(names(input), function(x) {
         observe({
-          #if (length(grep("selectAdm", x)) >0)
-            values$lastUpdated <- x
-        });
-        print (paste0("lastUpdated:",x))
+          input[[x]]
+          values$lastUpdated <- x
+        })
       })
     })
     
@@ -191,6 +185,20 @@ shinyServer(function(input, output, session){
       if(length(x)==0)
         return()
 
+      admSelected <- FALSE
+      lowestSelected <- ""
+      for (i in x)
+      {
+        if (length(input[[i]]) > 0)
+        {
+          admSelected <- TRUE
+          lowestSelected <- gsub("[^[:digit:]]","",i)
+        }
+      }
+      
+      if (!admSelected)
+        return()
+      
       ctryAdmLevelNames <- ctryAdmLevelNames()
       
       ctryAdmLevelNamesFilter <- ctryAdmLevelNames
@@ -199,13 +207,17 @@ shinyServer(function(input, output, session){
       
       lvlNum <- gsub("[^[:digit:]]", "",values$lastUpdated) #gsub("[^[:digit:]]", "", x)
       
-      if(length(lvlNum)==0)
+      if(lvlNum=="")
         return()
       
       print(paste0("lastupdated:",values$lastUpdated))
       
       print(paste0("x:",x))
       print(paste0("lvlnum:",lvlNum))
+      
+      #set admLevel to match the selectizeInput level
+      #if (length(input[[paste0("selectAdm", lvlNum)]]) > 0)
+        updateRadioButtons(session = session, inputId = "admLevel", selected = ctryAdmLevels[as.numeric(lowestSelected)])
       
       multipleSelected <- FALSE
       
@@ -518,28 +530,27 @@ shinyServer(function(input, output, session){
 #         addWMSTiles(baseUrl = "http://localhost/cgi-bin/mapserv?map=test.map", layers = ctryYearMonth, options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=0.5), layerId="nlRaster")
 #     })
     
-    observeEvent(input$admLevel, {
-      print(paste0("here: observe admLevel 2 update map"))
-      admLevel <- input$admLevel
-      countries <- input$countries
-      
-      if (input$drawMap == 0)
-        return()
-      
-      lyrs <- ctryAdmLevels()
-      
-      lyrNum <- which(lyrs == admLevel) - 1
-      
-      ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  yes = getCtryShpLyrName(countries,0), no = getCtryShpLyrName(countries,lyrNum)))
-      
-      proxy <- leafletProxy("map", data=ctryPoly)
-      
-      print("drawing leaflet proxy")
-      proxy %>% 
-        clearShapes() %>% 
-        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green")
-
-    })
+#     observeEvent(input$admLevel, {
+#       print(paste0("here: observe admLevel 2 update map"))
+#       admLevel <- input$admLevel
+#       countries <- input$countries
+#       
+#       if (input$drawMap == 0)
+#         return()
+#       
+#       lyrs <- ctryAdmLevels()
+#       
+#       lyrNum <- which(lyrs == admLevel) - 1
+#       
+#       ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  yes = getCtryShpLyrName(countries,0), no = getCtryShpLyrName(countries,lyrNum)))
+#       
+#       proxy <- leafletProxy("map", data=ctryPoly)
+#       
+#       print("drawing leaflet proxy")
+#       proxy %>% 
+#         clearShapes() %>% 
+#         addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green")
+#     })
     
     output$map <- renderLeaflet({
       print(paste0("here: draw leaflet map"))
@@ -563,30 +574,70 @@ shinyServer(function(input, output, session){
         return()
       }
       
+      admLvlCtrlNames <- names(input)
+      
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
+      
+      admLvlNums <- NULL
+      for (i in x)
+        if(length(input[[i]])>0)
+          admLvlNums <- c(admLvlNums, i)
+        
+        
+      print(paste0("x", x))
+      print(paste0("admlvlnums:", admLvlNums))
+
+      admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+      
+      print(paste0("admlvlNums:", admLvlNums))
+
+      #get the selected admLevel and convert to lyrnum
       lyrs <- ctryAdmLevels()
       
       lyrNum <- which(lyrs == admLevel) - 1
-      
-      ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  getCtryShpLyrName(countries,0), getCtryShpLyrName(countries,lyrNum)))
-      
+
       nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
-      
-      ctryPoly <- spTransform(ctryPoly, wgs84)
-      
+
       print("drawing leaflet")
       
       ctryYearMonth <- paste0(countries, "_", nlYm)
       
       message(ctryYearMonth)
       
-      leaflet(data=ctryPoly) %>%
+      ctryPoly0 <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
+      
+      map <- leaflet(data=ctryPoly0) %>%
         #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
         addTiles %>%
         addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
-        #addRasterImage(ctryRast, project=FALSE, colors=colorNumeric(pal, domain=NULL, na.color="#00000000")) %>%
-        #addRasterImage(x = ctryRast, colors=pal, layerId = "rasterLayer", opacity = 0.8) %>%
-        addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green") %>%
-        addLayersControl(options = layersControlOptions(collapsed = FALSE))
+          addPolygons(layerId = "adm0", fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 1, color="green")
+
+        if (lyrNum > 0)
+        for (iterAdmLevel in 1:lyrNum)
+        {
+          ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel)) 
+          
+          ctryPoly <- spTransform(ctryPoly, wgs84)
+          
+          if(iterAdmLevel == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
+            selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel)]] %in% input[[paste0("selectAdm", iterAdmLevel+1)]])
+          else
+            selected <- c()
+          
+          for (iterPoly in 1:nrow(ctryPoly@data))
+          {
+            if (iterPoly %in% selected)
+            {
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=iterAdmLevel+1.2, smoothFactor = 0.7, opacity = 1, color="yellow")
+            }
+            else
+            {
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = FALSE, stroke = TRUE, weight=iterAdmLevel+1, smoothFactor = 0.7, opacity = 1, color="green")
+              
+            }
+          }
+        }
+      map
     })
     
 })
