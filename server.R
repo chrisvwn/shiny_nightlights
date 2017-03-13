@@ -18,7 +18,7 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
-options(shiny.trace=F)
+options(shiny.trace=FALSE)
 
 shinyServer(function(input, output, session){
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
@@ -611,6 +611,9 @@ shinyServer(function(input, output, session){
 
       ctryData <- ctryNlData()
       
+      if (is.null(ctryData))
+        return()
+      
       #get our data ready to match with polygons
       #subset data based on level selections
       ctryData <- subset(ctryData, variable == nlYm)
@@ -660,6 +663,7 @@ shinyServer(function(input, output, session){
         if (lyrNum > 1) #skip drawing the country level. avoid reverse seq
         for (iterAdmLevel in 2:lyrNum)
         {
+          #turn off previous layer. No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
           ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel-1)) 
           
           ctryPoly <- spTransform(ctryPoly, wgs84)
@@ -675,21 +679,62 @@ shinyServer(function(input, output, session){
             ctryData[, 1], ctryData[, 2], format(ctryData[, 3],scientific = T,digits = 2)
           ) %>% lapply(htmltools::HTML)
           
-          for (iterPoly in 1:nrow(ctryPoly@data))
+          map <- map %>% addPolygons(
+            data = ctryPoly,
+            layerId = as.character(ctryPoly@data[,paste0('NAME_',iterAdmLevel-1)]),
+            fill = TRUE,
+            fillColor = ~pal(ctryData[,"value"]),
+            fillOpacity = 0.9,
+            stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt,
+            smoothFactor = 0.7,
+            opacity = 1,
+            color="white",
+            dashArray = "5",
+            group = ctryAdmLevels[iterAdmLevel],
+            highlight = highlightOptions(
+              weight = 5,
+              color = "#666",
+              dashArray = "",
+              fillOpacity = 0,
+              bringToFront = TRUE),
+              label = mapLabels,
+              labelOptions = labelOptions(
+                style = list("font-weight" = "normal",
+                             padding = "3px 8px"),
+                textsize = "15px",
+                direction = "auto"
+                )
+            )
+            
+        
+          for (iterPoly in selected)
           {
-            if (iterPoly %in% selected)
-            {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = ~pal(ctryData[iterPoly,"value"]), fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="#666", dashArray = "5", group = ctryAdmLevels[iterAdmLevel], highlight = highlightOptions(
-                weight = 5,
-                color = "#666",
-                dashArray = "",
-                fillOpacity = 0,
-                bringToFront = TRUE),
-                label = mapLabels[iterPoly],
-                labelOptions = labelOptions(
-                  style = list("font-weight" = "normal", padding = "3px 8px"),
-                  textsize = "15px",
-                  direction = "auto"))
+              map <- map %>% addPolygons(
+                data = ctryPoly[iterPoly,],
+                layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]),
+                fill = TRUE,
+                fillColor = ~pal(ctryData[iterPoly,"value"]),
+                fillOpacity = 0.9,
+                stroke = TRUE,
+                weight=4-(iterAdmLevel-1)*deltaLineWt+0.5,
+                smoothFactor = 0.7,
+                opacity = 1,
+                color="blue",
+                dashArray = "5",
+                group = "selected",
+                highlight = highlightOptions(
+                  weight = 5,
+                  color = "blue",
+                  dashArray = "",
+                  fillOpacity = 0,
+                  bringToFront = TRUE),
+                  label = mapLabels[iterPoly],
+                  labelOptions = labelOptions(
+                    style = list("font-weight" = "normal", padding = "3px 8px"),
+                    textsize = "15px",
+                    direction = "auto"
+                    )
+                )
               
               e <- extent(ctryPoly[iterPoly,])
               if (exists("mapExtent"))
@@ -704,23 +749,7 @@ shinyServer(function(input, output, session){
                 mapExtent <- e
               }
             }
-            else
-            {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = ~pal(ctryData[iterPoly,"value"]), fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = ctryAdmLevels[iterAdmLevel], highlight = highlightOptions(
-                weight = 5,
-                color = "#666",
-                dashArray = "",
-                fillOpacity = 0,
-                bringToFront = TRUE),
-                label = mapLabels[iterPoly],
-                labelOptions = labelOptions(
-                  style = list("font-weight" = "normal",
-                  padding = "3px 8px"),
-                  textsize = "15px",
-                  direction = "auto"))
-              
-            }
-          }
+
         }
       map <- map %>% addLayersControl(overlayGroups = ctryAdmLevels[1:lyrNum])
       
