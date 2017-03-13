@@ -638,6 +638,8 @@ shinyServer(function(input, output, session){
 
       ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
       
+      ctryData <- ctryData %>% mutate(rank = rank(-value, ties.method = "first"))
+      
       print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       print("drawing leaflet")
@@ -675,8 +677,8 @@ shinyServer(function(input, output, session){
             selected <- c()
           
           mapLabels <- sprintf(
-            paste0("<strong>%s</strong>", "<br/>%s", "<br/>%s"),
-            ctryData[, 1], ctryData[, 2], format(ctryData[, 3],scientific = T,digits = 2)
+            paste0("<strong>%s</strong>", "<br/>%s", "<br/>%s", "<br/>rank: %s/%s"),
+            ctryData[, 1], ctryData[, 2], format(ctryData[, 3],scientific = T,digits = 2),  ctryData[, 4], nrow(ctryData)
           ) %>% lapply(htmltools::HTML)
           
           map <- map %>% addPolygons(
@@ -720,7 +722,7 @@ shinyServer(function(input, output, session){
                 smoothFactor = 0.7,
                 opacity = 1,
                 color="blue",
-                dashArray = "5",
+                # dashArray = "5",
                 group = "selected",
                 highlight = highlightOptions(
                   weight = 5,
