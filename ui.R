@@ -57,7 +57,7 @@ alignCenter <- function(el) {
                  
                  uiOutput("intraCountry1"),
 
-                 actionButton("btnCtry", "Plot"),
+                 actionButton("btnGo", "Go"),
 
 #                 actionButton("btnIntraCtry", "Done"),
                  

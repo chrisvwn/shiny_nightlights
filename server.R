@@ -732,7 +732,7 @@ shinyServer(function(input, output, session){
                                  #title = "Nightlight percentiles",
                                  title = ifelse("norm_area" %in% scale, "Rad/sq. Km.", "Total Rad"),
                                  opacity = 1 )
-
+#       #Zoom in disabled
 #       if (exists("mapExtent"))
 #         map <- map %>% fitBounds(mapExtent@xmin, mapExtent@ymin, mapExtent@xmax, mapExtent@ymax)
       
