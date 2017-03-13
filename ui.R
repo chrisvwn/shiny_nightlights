@@ -102,10 +102,10 @@ alignCenter <- function(el) {
                   tags$style(type = "text/css", "#map {height: calc(100vh - 80px) !important;}"),
                   leafletOutput("map"),
                   
-                  uiOutput("sliderNlYearMonth"),
+                  uiOutput("sliderNlYearMonth")
                   
-                  actionButton(inputId="drawMap",
-                               label = "Draw Map")
+#                   actionButton(inputId="drawMap",
+#                                label = "Draw Map")
                   )
 # 
 #           tabItem(tabName = "stats",
