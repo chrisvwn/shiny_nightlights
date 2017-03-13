@@ -18,7 +18,7 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
-options(shiny.trace=FALSE)
+options(shiny.trace=F)
 
 shinyServer(function(input, output, session){
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
@@ -450,7 +450,7 @@ shinyServer(function(input, output, session){
       print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       if ("norm_area" %in% scale)
-        ctryData$value <- (ctryData$value*10e4)/ctryData$area_sq_km
+        ctryData$value <- (ctryData$value)/ctryData$area_sq_km
 
       if (graphType == "boxplot")
       {
@@ -557,6 +557,7 @@ shinyServer(function(input, output, session){
 #         addPolygons(fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 0.5, color="green")
 #     })
     
+
     output$map <- renderLeaflet({
       print(paste0("here: draw leaflet map"))
       # Use leaflet() here, and only include aspects of the map that
@@ -566,11 +567,11 @@ shinyServer(function(input, output, session){
       input$btnGo
       input$countries
 
-#      if (input$drawMap > 0)
         isolate({
       countries <- isolate(input$countries)
       nlYearMonth <- isolate(input$nlYearMonth)
       admLevel <- isolate(input$admLevel)
+      scale <- input$scale
       
       if (is.null(countries) || is.null(nlYearMonth) || is.null(admLevel))
         return()
@@ -599,16 +600,42 @@ shinyServer(function(input, output, session){
       print(paste0("admlvlNums:", admLvlNums))
 
       #get the selected admLevel and convert to lyrnum
-      lyrs <- ctryAdmLevels()
+      ctryAdmLevels <- ctryAdmLevels()
 
+      lyrNum <- which(ctryAdmLevels == admLevel)
+      
       #line weight increases. max=4 min=1
       deltaLineWt <- (4 - 1) / as.numeric(lyrNum)
-            
-      lyrNum <- which(lyrs == admLevel)
 
-      nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
+      nlYm <- as.Date(nlYearMonth[1], "%Y%m%d")
 
+      ctryData <- ctryNlData()
       
+      #get our data ready to match with polygons
+      #subset data based on level selections
+      ctryData <- subset(ctryData, variable == nlYm)
+
+      #only used when we want a single value for the selected features
+      #for now we want all features shown and then highlight the selected features
+#       for (lvl in admLvlNums)
+#       {
+#         if (lvl == 1)
+#           next()
+#         
+#         print(paste0("lvl:",lvl))
+#         
+#         if (length(input[[x[lvl-1]]])>0)
+#         {
+#           ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
+#         }
+#       }
+
+      if ("norm_area" %in% scale)
+        ctryData$value <- (ctryData$value)/ctryData$area_sq_km
+
+      ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
+      
+      print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       print("drawing leaflet")
       
@@ -616,13 +643,18 @@ shinyServer(function(input, output, session){
       
       message(ctryYearMonth)
       
+      #palette
+      bins <- quantile(ctryData$value, seq(0,1,0.1))
+      brewerPal <- rev(brewer.pal(10, "YlOrRd"))
+      pal <- colorBin(brewerPal, domain = ctryData$value, na.color = "grey", bins=bins)
+
       ctryPoly0 <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
       
       map <- leaflet(data=ctryPoly0) %>%
         #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
         addTiles %>%
         addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
-          addPolygons(layerId = "adm0", fill = FALSE, stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="green")
+        addPolygons(layerId = countries, fill = TRUE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country_code")
 
         selected <- NULL
         if (lyrNum > 1) #skip drawing the country level. avoid reverse seq
@@ -632,17 +664,32 @@ shinyServer(function(input, output, session){
           
           ctryPoly <- spTransform(ctryPoly, wgs84)
           
-          if (!is.null(admLvlNums))
+          if (length(admLvlNums) > 0)
           if((iterAdmLevel) == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
             selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel-1)]] %in% input[[paste0("selectAdm", iterAdmLevel)]])
           else
             selected <- c()
           
+          mapLabels <- sprintf(
+            paste0("<strong>%s</strong>", "<br/>%s", "<br/>%s"),
+            ctryData[, 1], ctryData[, 2], format(ctryData[, 3],scientific = T,digits = 2)
+          ) %>% lapply(htmltools::HTML)
+          
           for (iterPoly in 1:nrow(ctryPoly@data))
           {
             if (iterPoly %in% selected)
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="yellow")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = ~pal(ctryData[iterPoly,"value"]), fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="#666", dashArray = "5", group = ctryAdmLevels[iterAdmLevel], highlight = highlightOptions(
+                weight = 5,
+                color = "#666",
+                dashArray = "",
+                fillOpacity = 0,
+                bringToFront = TRUE),
+                label = mapLabels[iterPoly],
+                labelOptions = labelOptions(
+                  style = list("font-weight" = "normal", padding = "3px 8px"),
+                  textsize = "15px",
+                  direction = "auto"))
               
               e <- extent(ctryPoly[iterPoly,])
               if (exists("mapExtent"))
@@ -659,15 +706,35 @@ shinyServer(function(input, output, session){
             }
             else
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = FALSE, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="green")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = ~pal(ctryData[iterPoly,"value"]), fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = ctryAdmLevels[iterAdmLevel], highlight = highlightOptions(
+                weight = 5,
+                color = "#666",
+                dashArray = "",
+                fillOpacity = 0,
+                bringToFront = TRUE),
+                label = mapLabels[iterPoly],
+                labelOptions = labelOptions(
+                  style = list("font-weight" = "normal",
+                  padding = "3px 8px"),
+                  textsize = "15px",
+                  direction = "auto"))
               
             }
           }
         }
-      map %>% addLayersControl("map")
+      map <- map %>% addLayersControl(overlayGroups = ctryAdmLevels[1:lyrNum])
+      
+      if (admLevel != "country_code")
+        map <- map %>% addLegend(position = "bottomright", 
+                                 pal = pal, 
+                                 values = format(ctryData$value, scientific = T),
+                                 labels = quantile(ctryData$value, seq(0,1,0.1)),
+                                 #title = "Nightlight percentiles",
+                                 title = ifelse("norm_area" %in% scale, "Rad/sq. Km.", "Total Rad"),
+                                 opacity = 1 )
 
-      if (exists("mapExtent"))
-        map <- map %>% fitBounds(mapExtent@xmin, mapExtent@ymin, mapExtent@xmax, mapExtent@ymax)
+#       if (exists("mapExtent"))
+#         map <- map %>% fitBounds(mapExtent@xmin, mapExtent@ymin, mapExtent@xmax, mapExtent@ymax)
       
       map
       })
