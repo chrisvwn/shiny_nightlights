@@ -18,9 +18,14 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
+options(shiny.trace=FALSE)
 
 shinyServer(function(input, output, session){
-
+  #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
+  
+  output$intraCountry <- renderUI({})
+  outputOptions(output, "intraCountry", suspendWhenHidden = FALSE)
+  
   #yrs <- getAllNlYears("VIIRS")
   
   #isolate({updateTabItems(session, "inputs", "plotNightLights")})
@@ -62,7 +67,7 @@ shinyServer(function(input, output, session){
     #### reactive ctryNlData ####
     ctryNlData <- reactive({
       print(paste0("here: ctryNlData"))
-      input$btnCtry
+      input$btnGo
       
       countries <- isolate(input$countries)
 
@@ -381,7 +386,7 @@ shinyServer(function(input, output, session){
     
     output$plotNightLights <- renderPlotly({
       print(paste0("here: renderPlot"))
-      input$btnCtry
+      input$btnGo
       
       countries <- isolate(input$countries)
       
@@ -558,7 +563,7 @@ shinyServer(function(input, output, session){
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).
       
-      input$drawMap
+      input$btnGo
       input$countries
 
 #      if (input$drawMap > 0)
@@ -599,7 +604,7 @@ shinyServer(function(input, output, session){
       #line weight increases. max=4 min=1
       deltaLineWt <- (4 - 1) / as.numeric(lyrNum)
             
-      lyrNum <- which(lyrs == admLevel) - 1
+      lyrNum <- which(lyrs == admLevel)
 
       nlYm <- substr(gsub("-", "", nlYearMonth[1]), 1, 6)
 
@@ -617,17 +622,19 @@ shinyServer(function(input, output, session){
         #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
         addTiles %>%
         addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
-          addPolygons(layerId = "adm0", fill = FALSE, stroke = TRUE, weight=3, smoothFactor = 0.7, opacity = 1, color="green")
+          addPolygons(layerId = "adm0", fill = FALSE, stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="green")
 
-        if (lyrNum > 0)
-        for (iterAdmLevel in 1:lyrNum)
+        selected <- NULL
+        if (lyrNum > 1) #skip drawing the country level. avoid reverse seq
+        for (iterAdmLevel in 2:lyrNum)
         {
-          ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel)) 
+          ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel-1)) 
           
           ctryPoly <- spTransform(ctryPoly, wgs84)
           
-          if(iterAdmLevel+1 == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
-            selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel)]] %in% input[[paste0("selectAdm", iterAdmLevel+1)]])
+          if (!is.null(admLvlNums))
+          if((iterAdmLevel) == last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
+            selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel-1)]] %in% input[[paste0("selectAdm", iterAdmLevel)]])
           else
             selected <- c()
           
@@ -635,7 +642,7 @@ shinyServer(function(input, output, session){
           {
             if (iterPoly %in% selected)
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="yellow")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = TRUE, fillColor = "yellow", fillOpacity = 0.9, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt+0.5, smoothFactor = 0.7, opacity = 1, color="yellow")
               
               e <- extent(ctryPoly[iterPoly,])
               if (exists("mapExtent"))
@@ -652,7 +659,7 @@ shinyServer(function(input, output, session){
             }
             else
             {
-              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel)]), fill = FALSE, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="green")
+              map <- map %>% addPolygons(data = ctryPoly[iterPoly,], layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]), fill = FALSE, stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt, smoothFactor = 0.7, opacity = 1, color="green")
               
             }
           }
