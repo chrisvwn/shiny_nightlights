@@ -722,7 +722,7 @@ shinyServer(function(input, output, session){
           {
               map <- map %>% addPolygons(
                 data = ctryPoly[iterPoly,],
-                layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]),
+                layerId = paste0(as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]),"_selected"),
                 fill = TRUE,
                 fillColor = ~pal(lvlCtryData[iterPoly,"value"]),
                 fillOpacity = 0.9,
