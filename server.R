@@ -618,7 +618,7 @@ shinyServer(function(input, output, session){
       #subset data based on level selections
       ctryData <- subset(ctryData, variable == nlYm)
 
-      #only used when we want a single value for the selected features
+      #only used when we want to show only the selected features
       #for now we want all features shown and then highlight the selected features
 #       for (lvl in admLvlNums)
 #       {
@@ -636,10 +636,6 @@ shinyServer(function(input, output, session){
       if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value)/ctryData$area_sq_km
 
-      ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
-      
-      ctryData <- ctryData %>% mutate(rank = rank(-value, ties.method = "first"))
-      
       print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       print("drawing leaflet")
@@ -648,11 +644,6 @@ shinyServer(function(input, output, session){
       
       message(ctryYearMonth)
       
-      #palette
-      bins <- quantile(ctryData$value, seq(0,1,0.1))
-      brewerPal <- rev(brewer.pal(10, "YlOrRd"))
-      pal <- colorBin(brewerPal, domain = ctryData$value, na.color = "grey", bins=bins)
-
       ctryPoly0 <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
       
       map <- leaflet(data=ctryPoly0) %>%
@@ -665,7 +656,24 @@ shinyServer(function(input, output, session){
         if (lyrNum > 1) #skip drawing the country level. avoid reverse seq
         for (iterAdmLevel in 2:lyrNum)
         {
-          #turn off previous layer. No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
+          #aggregate the data to the current level
+          iterAdmLevelName <- ctryAdmLevels[iterAdmLevel]
+          #lvlCtryData <- setNames(aggregate(ctryData$value, by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"]), mean, na.rm=T), c(iterAdmLevelName, "variable", "value"))
+          
+          temp <- as.data.table(ctryData)
+          lvlCtryData <- setNames(temp[,list(mean(value)), by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"])],c(iterAdmLevelName, "variable", "value"))
+          lvlCtryData <- as.data.frame(lvlCtryData)
+          
+          #rank the data
+          varname <- paste0('rank',iterAdmLevel)
+          lvlCtryData[[varname]] <- with(lvlCtryData, rank(-value, ties.method = 'first'))
+          
+          #palette deciles for the layer
+          bins <- quantile(lvlCtryData$value, seq(0,1,0.1), na.rm=T)
+          brewerPal <- rev(brewer.pal(10, "YlOrRd"))
+          pal <- colorBin(brewerPal, domain = lvlCtryData$value, na.color = "grey", bins=bins)
+          
+          #turn off previous layer? No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
           ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel-1)) 
           
           ctryPoly <- spTransform(ctryPoly, wgs84)
@@ -676,16 +684,17 @@ shinyServer(function(input, output, session){
           else
             selected <- c()
           
+
           mapLabels <- sprintf(
-            paste0("<strong>%s</strong>", "<br/>%s", "<br/>%s", "<br/>rank: %s/%s"),
-            ctryData[, 1], ctryData[, 2], format(ctryData[, 3],scientific = T,digits = 2),  ctryData[, 4], nrow(ctryData)
+            paste0("<strong>%s:%s</strong>", "<br/>%s", "<br/>%s", "<br/>rank: %s/%s"),
+            ctryAdmLevels[iterAdmLevel], lvlCtryData[, 1], lvlCtryData[, 2], format(lvlCtryData[, 3],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
           ) %>% lapply(htmltools::HTML)
-          
+
           map <- map %>% addPolygons(
             data = ctryPoly,
             layerId = as.character(ctryPoly@data[,paste0('NAME_',iterAdmLevel-1)]),
             fill = TRUE,
-            fillColor = ~pal(ctryData[,"value"]),
+            fillColor = ~pal(lvlCtryData[,"value"]),
             fillOpacity = 0.9,
             stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt,
             smoothFactor = 0.7,
@@ -715,7 +724,7 @@ shinyServer(function(input, output, session){
                 data = ctryPoly[iterPoly,],
                 layerId = as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]),
                 fill = TRUE,
-                fillColor = ~pal(ctryData[iterPoly,"value"]),
+                fillColor = ~pal(lvlCtryData[iterPoly,"value"]),
                 fillOpacity = 0.9,
                 stroke = TRUE,
                 weight=4-(iterAdmLevel-1)*deltaLineWt+0.5,
@@ -759,7 +768,7 @@ shinyServer(function(input, output, session){
         map <- map %>% addLegend(position = "bottomright", 
                                  pal = pal, 
                                  values = format(ctryData$value, scientific = T),
-                                 labels = quantile(ctryData$value, seq(0,1,0.1)),
+                                 labels = quantile(ctryData$value, seq(0,1,0.1), na.rm=T),
                                  #title = "Nightlight percentiles",
                                  title = ifelse("norm_area" %in% scale, "Rad/sq. Km.", "Total Rad"),
                                  opacity = 1 )
