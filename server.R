@@ -669,7 +669,7 @@ shinyServer(function(input, output, session){
           lvlCtryData[[varname]] <- with(lvlCtryData, rank(-value, ties.method = 'first'))
           
           #palette deciles for the layer
-          bins <- quantile(lvlCtryData$value, seq(0,1,0.1), na.rm=T)
+          bins <- unique(quantile(lvlCtryData$value, seq(0,1,0.1), na.rm=T))
           brewerPal <- rev(brewer.pal(10, "YlOrRd"))
           pal <- colorBin(brewerPal, domain = lvlCtryData$value, na.color = "grey", bins=bins)
           
@@ -762,7 +762,7 @@ shinyServer(function(input, output, session){
             }
 
         }
-      map <- map %>% addLayersControl(overlayGroups = ctryAdmLevels[1:lyrNum])
+      map <- map %>% addLayersControl(overlayGroups = c(ctryAdmLevels[1:lyrNum], "selected"))
       
       if (admLevel != "country_code")
         map <- map %>% addLegend(position = "bottomright", 
