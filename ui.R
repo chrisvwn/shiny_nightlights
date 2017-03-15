@@ -106,19 +106,19 @@ alignCenter <- function(el) {
                   
 #                   actionButton(inputId="drawMap",
 #                                label = "Draw Map")
-                  )
-# 
-#           tabItem(tabName = "stats",
-#                    textOutput("Stats")
-#                   ),
-#           
-#           tabItem(tabName = "models",
-#                    textOutput("Models")
-#                    ),
-#           
-#           tabItem(tabName = "Data",
-#                    DT::dataTableOutput(outputId = "dataset")
-#                    )
+                  ),
+
+          tabItem(tabName = "stats",
+                   textOutput("Stats")
+                  ),
+          
+          tabItem(tabName = "models",
+                   textOutput("Models")
+                   ),
+          
+          tabItem(tabName = "Data",
+                   DT::dataTableOutput(outputId = "dataset")
+                   )
         )
       )
     )
