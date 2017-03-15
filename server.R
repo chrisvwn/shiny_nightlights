@@ -18,7 +18,7 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
-options(shiny.trace=FALSE)
+options(shiny.trace=F)
 
 shinyServer(function(input, output, session){
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
@@ -84,9 +84,10 @@ shinyServer(function(input, output, session){
       {
         for (ctryCode in countries)
         {
+          print(ctryCode)
           temp <- read.csv(getCtryNlDataFnamePath(ctryCode))
           
-          ctryCols <- grep("country|area|NL_", names(temp))
+          ctryCols <- grep("country_code|area|NL_", names(temp))
           
           temp <- temp[ , ctryCols]
           
@@ -328,7 +329,7 @@ shinyServer(function(input, output, session){
                     min = as.Date("2012-04-01", "%Y-%m-%d"),
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
                     timeFormat = "%Y-%m",
-                    step = 1,
+                    step = 31,
                     value = c(as.Date("2012-01-01","%Y-%m-%d"),as.Date("2016-12-31","%Y-%m-%d"))
         )
       }
@@ -337,15 +338,20 @@ shinyServer(function(input, output, session){
         minDate <- min(ctryData$variable)
         maxDate <- max(ctryData$variable)
                            
+        animationOptions(interval = 5000, loop = FALSE, playButton = "Play",
+                         pauseButton = NULL)
+        
         sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
                     min = minDate,
                     max = maxDate,
                     timeFormat = "%Y-%m",
-                    step = 1,
-                    value = c(minDate, maxDate)
+                    step = 31,
+                    value = c(minDate, maxDate),
+                    animate = T
         )
       }
+      
     })
     
     #### sliderNlYearMonth ####
@@ -362,7 +368,7 @@ shinyServer(function(input, output, session){
                     min = as.Date("2012-04-01", "%Y-%m-%d"),
                     max = as.Date("2016-12-31", "%Y-%m-%d"),
                     timeFormat = "%Y-%m",
-                    step = 1,
+                    step = 31,
                     value = as.Date("2012-04-01", "%Y-%m-%d")
         )
       }
@@ -371,13 +377,18 @@ shinyServer(function(input, output, session){
         minDate <- min(ctryData$variable)
         maxDate <- max(ctryData$variable)
         
+        animationOptions(interval = 5000, loop = FALSE, playButton = "Play",
+                         pauseButton = NULL)
+        
         sliderInput(inputId = "nlYearMonth",
                     label = "Time",
                     min = minDate,
                     max = maxDate,
                     timeFormat = "%Y-%m",
-                    step = 1,
-                    value = minDate
+                    step = 31,
+                    value = minDate,
+                    animate = T
+                    
         )
       }
     })
@@ -565,14 +576,14 @@ shinyServer(function(input, output, session){
       # entire map is being torn down and recreated).
       
       input$btnGo
-      input$countries
 
-        isolate({
+
       countries <- isolate(input$countries)
-      nlYearMonth <- isolate(input$nlYearMonth)
+      nlYearMonth <- input$nlYearMonth
       admLevel <- isolate(input$admLevel)
       scale <- input$scale
       
+      isolate({      
       if (is.null(countries) || is.null(nlYearMonth) || is.null(admLevel))
         return()
       
@@ -616,7 +627,7 @@ shinyServer(function(input, output, session){
       
       #get our data ready to match with polygons
       #subset data based on level selections
-      ctryData <- subset(ctryData, variable == nlYm)
+      ctryData <- subset(ctryData, year(variable) == year(nlYm) & month(variable) == month(nlYm))
 
       #only used when we want to show only the selected features
       #for now we want all features shown and then highlight the selected features
@@ -661,7 +672,7 @@ shinyServer(function(input, output, session){
           #lvlCtryData <- setNames(aggregate(ctryData$value, by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"]), mean, na.rm=T), c(iterAdmLevelName, "variable", "value"))
           
           temp <- as.data.table(ctryData)
-          lvlCtryData <- setNames(temp[,list(mean(value)), by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"])],c(iterAdmLevelName, "variable", "value"))
+          lvlCtryData <- setNames(temp[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"])],c(iterAdmLevelName, "variable", "value"))
           lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
