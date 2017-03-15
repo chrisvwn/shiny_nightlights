@@ -38,11 +38,11 @@ shinyServer(function(input, output, session){
       if (length(input$countries) != 1)
         return()
 
-      temp <- read.csv(getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
+      temp <- fread(getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
       
       cols <- names(temp)
       
-      cols <- cols[-grep("area|NL_", cols)]
+      cols <- cols[-grep("area_sq_km|NL_", cols)]
     })
     
     #### reactive ctryAdmLevelNames ####
@@ -55,13 +55,20 @@ shinyServer(function(input, output, session){
       if (length(countries) != 1)
         return()
 
-      data <- read.csv(getCtryNlDataFnamePath(countries), header = T)
+      hdr <- fread(getCtryNlDataFnamePath(countries), nrows = 1, header = T)
       
-      cols <- names(data)
+      colClasses <- names(hdr)
       
-      cols <- cols[-grep("area|NL_", cols)]
+      colClasses[-grep("area_sq_km|NL_", colClasses)] <- "character"
+      colClasses[grep("area_sq_km|NL_", colClasses)] <- "NULL"
       
-      data[,cols]
+      data <- fread(getCtryNlDataFnamePath(countries), colClasses = colClasses, header = T)
+      
+#       cols <- names(data)
+#       
+#       cols <- cols[-grep("area|NL_", cols)]
+#       
+#       data[,cols]
     })
     
     #### reactive ctryNlData ####
@@ -78,14 +85,14 @@ shinyServer(function(input, output, session){
 
       if (length(countries) == 1)
       {
-        ctryData <- read.csv(getCtryNlDataFnamePath(countries))
+        ctryData <- fread(getCtryNlDataFnamePath(countries))
       }
       else if(length(countries) > 1)
       {
         for (ctryCode in countries)
         {
           print(ctryCode)
-          temp <- read.csv(getCtryNlDataFnamePath(ctryCode))
+          temp <- fread(getCtryNlDataFnamePath(ctryCode))
           
           ctryCols <- grep("country_code|area|NL_", names(temp))
           
@@ -107,7 +114,8 @@ shinyServer(function(input, output, session){
       
       ctryData <- melt(ctryData, measure.vars=meltMeasureVars)
       
-      ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+      # ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+      ctryData$variable <- paste0(gsub("[^[:digit:]]","", ctryData$variable),"01")
       
       ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
       
@@ -170,11 +178,18 @@ shinyServer(function(input, output, session){
           
           b <- selectizeInput(inputId = paste0("selectAdm", lvlIdx),
                               label = ctryAdmLevels[lvlIdx],
-                              choices = lvlSelect,
+                              choices = NULL,
                               selected = NULL,
                               multiple = TRUE
           )
           
+          updateSelectizeInput(session = session,
+                               inputId = paste0("selectAdm", lvlIdx),
+                               choices = lvlSelect,
+                               server = TRUE
+                               )
+          
+          b
           #list(a,b)
         })
     })
@@ -476,13 +491,16 @@ shinyServer(function(input, output, session){
       {
         if (length(countries)==1)
         {
-          ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
-          
+          #switched to data.table aggregation
+          #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
+          ctryData <- setNames(ctryData[,mean(value, na.rm = TRUE),by = list(ctryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
           g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         else
         {
-          ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+          #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+          #switched to data.table aggregation
+          ctryData <- setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country_code, variable)], c("country_code", "variable", "value"))
           g <- ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
         }
 
@@ -657,7 +675,7 @@ shinyServer(function(input, output, session){
         #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
         addTiles %>%
         addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
-        addPolygons(layerId = countries, fill = TRUE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country_code")
+        addPolygons(layerId = countries, fill = FALSE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country_code")
 
         selected <- NULL
         if (lyrNum > 1) #skip drawing the country level. avoid reverse seq
@@ -667,9 +685,10 @@ shinyServer(function(input, output, session){
           iterAdmLevelName <- ctryAdmLevels[iterAdmLevel]
           #lvlCtryData <- setNames(aggregate(ctryData$value, by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"]), mean, na.rm=T), c(iterAdmLevelName, "variable", "value"))
           
-          temp <- as.data.table(ctryData)
-          lvlCtryData <- setNames(temp[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[,"variable"])],c(iterAdmLevelName, "variable", "value"))
-          lvlCtryData <- as.data.frame(lvlCtryData)
+          #temp <- as.data.table(ctryData)
+          #data already in data.table form
+          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[,variable])],c(iterAdmLevelName, "variable", "value"))
+          #lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
           varname <- paste0('rank',iterAdmLevel)
@@ -694,14 +713,14 @@ shinyServer(function(input, output, session){
 
           mapLabels <- sprintf(
             paste0("<strong>%s:%s</strong>", "<br/>%s", "<br/>%s", "<br/>rank: %s/%s"),
-            ctryAdmLevels[iterAdmLevel], lvlCtryData[, 1], lvlCtryData[, 2], format(lvlCtryData[, 3],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
+            ctryAdmLevels[iterAdmLevel], lvlCtryData[[1]], lvlCtryData[[2]], format(lvlCtryData[[3]],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
           ) %>% lapply(htmltools::HTML)
 
           map <- map %>% addPolygons(
             data = ctryPoly,
             layerId = as.character(ctryPoly@data[,paste0('NAME_',iterAdmLevel-1)]),
             fill = TRUE,
-            fillColor = ~pal(lvlCtryData[,"value"]),
+            fillColor = ~pal(lvlCtryData[["value"]]),
             fillOpacity = 0.9,
             stroke = TRUE, weight=4-(iterAdmLevel-1)*deltaLineWt,
             smoothFactor = 0.7,
@@ -731,7 +750,7 @@ shinyServer(function(input, output, session){
                 data = ctryPoly[iterPoly,],
                 layerId = paste0(as.character(ctryPoly@data[iterPoly,paste0('NAME_',iterAdmLevel-1)]),"_selected"),
                 fill = TRUE,
-                fillColor = ~pal(lvlCtryData[iterPoly,"value"]),
+                fillColor = ~pal(lvlCtryData[["value"]][iterPoly]),
                 fillOpacity = 0.9,
                 stroke = TRUE,
                 weight=4-(iterAdmLevel-1)*deltaLineWt+0.5,
@@ -769,7 +788,7 @@ shinyServer(function(input, output, session){
             }
 
         }
-      map <- map %>% addLayersControl(overlayGroups = c(ctryAdmLevels[1:lyrNum], "selected"))
+      map <- map %>% addLayersControl(overlayGroups = c(ctryAdmLevels[2:lyrNum], "selected"))
       
       if (admLevel != "country_code")
         map <- map %>% addLegend(position = "bottomright", 
