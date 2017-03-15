@@ -478,7 +478,7 @@ shinyServer(function(input, output, session){
       {
         if (length(countries)==1)
         {
-          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[,admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
+          g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[[admLevel]])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         else
         {
@@ -494,7 +494,7 @@ shinyServer(function(input, output, session){
           #switched to data.table aggregation
           #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
           ctryData <- setNames(ctryData[,mean(value, na.rm = TRUE),by = list(ctryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
-          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[,admLevel])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
+          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[[admLevel]])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
         }
         else
         {
@@ -687,7 +687,7 @@ shinyServer(function(input, output, session){
           
           #temp <- as.data.table(ctryData)
           #data already in data.table form
-          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[,variable])],c(iterAdmLevelName, "variable", "value"))
+          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[[variable]])],c(iterAdmLevelName, "variable", "value"))
           #lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
