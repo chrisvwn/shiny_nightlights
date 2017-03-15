@@ -338,8 +338,7 @@ shinyServer(function(input, output, session){
         minDate <- min(ctryData$variable)
         maxDate <- max(ctryData$variable)
                            
-        animationOptions(interval = 5000, loop = FALSE, playButton = "Play",
-                         pauseButton = NULL)
+        
         
         sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
@@ -348,7 +347,7 @@ shinyServer(function(input, output, session){
                     timeFormat = "%Y-%m",
                     step = 31,
                     value = c(minDate, maxDate),
-                    animate = T
+                    animate = animationOptions(interval = 2000, loop = FALSE, playButton = NULL, pauseButton = NULL)
         )
       }
       
@@ -377,9 +376,6 @@ shinyServer(function(input, output, session){
         minDate <- min(ctryData$variable)
         maxDate <- max(ctryData$variable)
         
-        animationOptions(interval = 5000, loop = FALSE, playButton = "Play",
-                         pauseButton = NULL)
-        
         sliderInput(inputId = "nlYearMonth",
                     label = "Time",
                     min = minDate,
@@ -387,7 +383,7 @@ shinyServer(function(input, output, session){
                     timeFormat = "%Y-%m",
                     step = 31,
                     value = minDate,
-                    animate = T
+                    animate = animationOptions(interval = 10000, loop = FALSE, playButton = "Play", pauseButton = NULL)
                     
         )
       }
