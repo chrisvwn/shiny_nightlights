@@ -7,7 +7,7 @@
 
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(shiny, ggplot2, plotly, reshape, rgdal, RColorBrewer)
+pacman::p_load(shiny, ggplot2, plotly, reshape, rgdal, RColorBrewer, ggdendro, dendextend)
 
 pacman::p_load_gh("rstudio/leaflet")
 
@@ -18,6 +18,8 @@ library(leaflet)
 library(reshape)
 library(rgdal)
 library(RColorBrewer)
+library(ggdendro)
+library(dendextend)
 
 source("nightlights.R")
 options(shiny.trace=F)
@@ -418,10 +420,8 @@ shinyServer(function(input, output, session){
         )
       }
     })
-    
-    ####renderPlotly plotCyclic####
-    
-    output$plotCluster <- renderPlotly({
+    ####reactive hcluster####
+    hCluster <- reactive({
       print(paste0("here: renderPlotCluster"))
       input$btnGo
       
@@ -434,16 +434,65 @@ shinyServer(function(input, output, session){
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
       
-      ctryData <- ctryNlData()
+      meltCtryData <- ctryNlDataMelted()
       
       if (is.null(countries) || is.null(ctryData))
         return()
       
+      aggMeltCtryData <- aggregate(value ~ county+variable, data=meltCtryData, mean)
       
+      unmeltCtryData <- dcast(aggMeltCtryData, county ~ variable, value.var='value', aggregate='mean')
+      
+      d <- dist(unmeltCtryData)
+      
+      h<-hclust(d)
+      
+      h$labels <- unmeltCtryData$county
+      
+      h
+    })
+    
+    output$plotHCluster <- renderPlot({
+      
+      clusts <- hCluster()
+      
+      if (is.null(clusts))
+        return()
+      
+      dendro <- as.dendrogram(clusts)
+      
+      ggdendrogram(dendro)
     })
     
     
-    ####renderPlotly plotCyclic####
+    ####renderPlotly plotCluster####
+    
+    output$plotPointsCluster <- renderPlotly({
+      
+      clusts <- hCluster()
+
+      if(is.null(clusts))
+        return()
+            
+      numClusters <- input$kClusters
+      
+      isolate({
+        meltCtryData <- ctryNlDataMelted()
+        
+        cutClusts <- cutree(clusts, k=numClusters)
+        
+        ctryAvg <- aggregate(value ~ county, data=meltCtryData, mean)
+  
+        cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+        
+        g <- ggplot(data=ctryAvg, aes(x=county, y=value, col=as.factor(cutClusts)))+geom_point(size=2)+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))+scale_colour_manual(values=cbPalette)
+        
+        ggplotly(g)
+      })
+    })
+    
+    
+    ####renderPlotly plotYearly####
     
     output$plotYearly <- renderPlotly({
       print(paste0("here: renderPlotYearly"))
@@ -457,17 +506,17 @@ shinyServer(function(input, output, session){
       scale <- input$scale
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
-      
-      ctryData <- ctryNlDataMelted()
-      
-      if (is.null(countries) || is.null(ctryData))
-        return()
-      
-      admLvlCtrlNames <- names(input)
-      
-      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
-      
-      isolate({
+
+      isolate({      
+        ctryData <- ctryNlDataMelted()
+        
+        if (is.null(countries) || is.null(ctryData))
+          return()
+        
+        admLvlCtrlNames <- names(input)
+        
+        x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
+
         admLvlNums <- NULL
         for (i in x)
           if(length(input[[i]])>0)
