@@ -18,7 +18,7 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
-options(shiny.trace=F)
+options(shiny.trace=T)
 
 shinyServer(function(input, output, session){
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
@@ -71,18 +71,17 @@ shinyServer(function(input, output, session){
 #       data[,cols]
     })
     
-    #### reactive ctryNlData ####
     ctryNlData <- reactive({
       print(paste0("here: ctryNlData"))
       input$btnGo
       
       countries <- isolate(input$countries)
-
+      
       if (length(countries)<1)
         return()
-            
+      
       ctryData <- NULL
-
+      
       if (length(countries) == 1)
       {
         ctryData <- fread(getCtryNlDataFnamePath(countries))
@@ -107,6 +106,17 @@ shinyServer(function(input, output, session){
           }
         }
       }
+      return(ctryData)
+    })  
+  
+    #### reactive ctryNlData ####
+    ctryNlDataMelted <- reactive({
+      print(paste0("here: ctryNlDataMelted"))
+      
+      if(is.null(ctryNlData()))
+        return()
+      
+      ctryData <- ctryNlData()
       
       meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
       
@@ -335,7 +345,7 @@ shinyServer(function(input, output, session){
     
     output$sliderNlYearMonthRange <- renderUI({
       print(paste0("here: sliderNlYearMonthRange"))
-      ctryData <- ctryNlData()
+      ctryData <- ctryNlDataMelted()
       
       if (is.null(ctryData))
       {
@@ -373,7 +383,7 @@ shinyServer(function(input, output, session){
     output$sliderNlYearMonth <- renderUI({
       print(paste0("here: sliderNlYearMonth"))
       
-      ctryData <- ctryNlData()
+      ctryData <- ctryNlDataMelted()
       
       if (is.null(ctryData))
       {
@@ -419,7 +429,7 @@ shinyServer(function(input, output, session){
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
       
-      ctryData <- ctryNlData()
+      ctryData <- ctryNlDataMelted()
 
       if (is.null(countries) || is.null(ctryData))
         return()
@@ -634,7 +644,7 @@ shinyServer(function(input, output, session){
 
       nlYm <- as.Date(nlYearMonth[1], "%Y%m%d")
 
-      ctryData <- ctryNlData()
+      ctryData <- ctryNlDataMelted()
       
       if (is.null(ctryData))
         return()
