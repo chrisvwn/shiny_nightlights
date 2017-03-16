@@ -7,7 +7,9 @@
 
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(shiny, shinydashboard, leaflet, plotly)
+pacman::p_load(shiny, shinydashboard, plotly)
+
+#pacman::p_load_gh("rstudio/leaflet") #get the github version of leaflet
 
 suppressMessages(library(shiny))
 
@@ -77,7 +79,7 @@ alignCenter <- function(el) {
                 )
         ),
         
-        menuItem("plots", tabName = "plots", selected = TRUE),
+        menuItem("plots", tabName = "plots"),
         
         menuItem("maps", tabName = "maps"),
         
@@ -109,7 +111,21 @@ alignCenter <- function(el) {
                   ),
 
           tabItem(tabName = "stats",
-                   textOutput("Stats")
+                   fluidRow(
+                     box(title = "Annual Trends", 
+                         plotlyOutput("plotYearly")),
+                     
+                     tabBox(
+                       tabPanel(title = "plotPointsCluster",
+                                plotlyOutput("plotPointsCluster")
+                                ),
+                       
+                       tabPanel(title = "plotHCluster",
+                                plotOutput("plotHCluster"),
+                                sliderInput("kClusters", "k", min=1, max=10, value=2)
+                                )
+                     )
+                   )
                   ),
           
           tabItem(tabName = "models",
