@@ -687,7 +687,7 @@ shinyServer(function(input, output, session){
           
           #temp <- as.data.table(ctryData)
           #data already in data.table form
-          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[[variable]])],c(iterAdmLevelName, "variable", "value"))
+          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[["variable"]])],c(iterAdmLevelName, "variable", "value"))
           #lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
