@@ -451,7 +451,7 @@ shinyServer(function(input, output, session){
       
       h<-hclust(d)
       
-      h$labels <- unmeltCtryData$county
+      h$labels <- unmeltCtryData[[admLevel]]
       
       h
     })
