@@ -7,7 +7,9 @@
 
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
-pacman::p_load(shiny, ggplot2, plotly, leaflet, reshape, rgdal, RColorBrewer)
+pacman::p_load(shiny, ggplot2, plotly, reshape, rgdal, RColorBrewer)
+
+pacman::p_load_gh("rstudio/leaflet")
 
 library(shiny)
 library(ggplot2)
@@ -18,7 +20,7 @@ library(rgdal)
 library(RColorBrewer)
 
 source("nightlights.R")
-options(shiny.trace=T)
+options(shiny.trace=F)
 
 shinyServer(function(input, output, session){
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
@@ -71,6 +73,8 @@ shinyServer(function(input, output, session){
 #       data[,cols]
     })
     
+    #### reactive ctryNlData ####
+  
     ctryNlData <- reactive({
       print(paste0("here: ctryNlData"))
       input$btnGo
@@ -109,7 +113,8 @@ shinyServer(function(input, output, session){
       return(ctryData)
     })  
   
-    #### reactive ctryNlData ####
+    #### reactive ctryNlDataMelted ####
+    
     ctryNlDataMelted <- reactive({
       print(paste0("here: ctryNlDataMelted"))
       
@@ -414,7 +419,163 @@ shinyServer(function(input, output, session){
       }
     })
     
-    ####renderPlotly####
+    ####renderPlotly plotCyclic####
+    
+    output$plotCluster <- renderPlotly({
+      print(paste0("here: renderPlotCluster"))
+      input$btnGo
+      
+      countries <- isolate(input$countries)
+      
+      if (is.null(countries))
+        return()
+      
+      scale <- input$scale
+      nlYearMonthRange <- input$nlYearMonthRange
+      graphType <- input$graphType
+      
+      ctryData <- ctryNlData()
+      
+      if (is.null(countries) || is.null(ctryData))
+        return()
+      
+      
+    })
+    
+    
+    ####renderPlotly plotCyclic####
+    
+    output$plotYearly <- renderPlotly({
+      print(paste0("here: renderPlotYearly"))
+      input$btnGo
+      
+      countries <- isolate(input$countries)
+      
+      if (is.null(countries))
+        return()
+      
+      scale <- input$scale
+      nlYearMonthRange <- input$nlYearMonthRange
+      graphType <- input$graphType
+      
+      ctryData <- ctryNlDataMelted()
+      
+      if (is.null(countries) || is.null(ctryData))
+        return()
+      
+      admLvlCtrlNames <- names(input)
+      
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
+      
+      isolate({
+        admLvlNums <- NULL
+        for (i in x)
+          if(length(input[[i]])>0)
+            admLvlNums <- c(admLvlNums, i)
+          
+          
+          print(paste0("x", x))
+          print(paste0("admlvlnums:", admLvlNums))
+          
+          #if (admLvlNum=="" && length(countries)>0)
+          #  return()
+          
+          admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+          
+          if (length(admLvlNums)==0)
+            admLvlNums <- 1
+          
+          ctryAdmLevels <- ctryAdmLevels()
+          admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
+          
+          print(paste0("admLevel:", admLevel))
+          
+          if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
+            admLevel <- "country_code"
+          
+          ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
+          
+          for (lvl in admLvlNums)
+          {
+            if (lvl == 1)
+              next()
+            
+            print(paste0("lvl:",lvl))
+            
+            if (length(input[[x[lvl-1]]])>0)
+            {
+              ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
+            }
+          }
+          
+          ctryData$year <- year(ctryData$variable)
+          
+          ctryData$month <- month(ctryData$variable)
+          
+          print(paste0("ctrydata nrow:", nrow(ctryData)))
+          
+          if ("norm_area" %in% scale)
+            ctryData$value <- (ctryData$value)/ctryData$area_sq_km
+          
+          if (graphType == "boxplot")
+          {
+            if (length(countries)==1)
+            {
+              g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[[admLevel]])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
+            }
+            else
+            {
+              g <- ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code)) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
+            }
+            
+            g <- g + geom_boxplot()# +facet_grid(.~variable)
+          }
+          else if (graphType == "line")
+          {
+            if (length(countries)==1)
+            {
+              #switched to data.table aggregation
+              #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
+              ctryData <- setNames(ctryData[,list(mean(value, na.rm = TRUE)), by = list(ctryData[[admLevel]], variable, as.factor(year), as.factor(month))], c(admLevel, "variable", "year", "month", "value"))
+              g <- ggplot(ctryData, aes(x=month, y=value, col=year, group=year))
+            }
+            else
+            {
+              #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+              #switched to data.table aggregation
+              ctryData <- setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country_code, variable)], c("country_code", "variable", "value"))
+              g <- ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
+            }
+            
+            g <- g + geom_line() + geom_point() + geom_smooth(aes(group=1),method = "loess", weight=3) #+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) #+ labs(col=year)
+          }
+          else if (graphType == "histogram")
+          {
+            #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+            
+            g <- ggplot(data=ctryData, aes(x=value))
+            
+            g <- g + geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + geom_density(alpha=.2, fill="#FF6666") + facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
+            
+          }
+          
+          if ("scale_y_log" %in% scale)
+            g <- g + scale_y_log10()
+          
+          if ("scale_x_log" %in% scale)
+            g <- g + scale_x_log10()
+          
+          if ("norm_area" %in% scale)
+            g <- g + labs(title="Nightlight Radiances", x = "Month", y = expression(paste("Avg Rad W" %.% "Sr" ^{-1} %.% "cm" ^{-2}, "per Km" ^{2})))
+          else
+            g <- g + labs(title="Nightlight Radiances", x = "Month", y = expression(~Total~Rad~W %.% Sr^{-1}%.%cm^{-2}))
+          
+          ggplotly(g)
+          
+      })
+    })
+    
+    #### renderPlotly plotNightLights####
     
     output$plotNightLights <- renderPlotly({
       print(paste0("here: renderPlot"))
@@ -504,7 +665,7 @@ shinyServer(function(input, output, session){
           #switched to data.table aggregation
           #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
           ctryData <- setNames(ctryData[,mean(value, na.rm = TRUE),by = list(ctryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
-          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[[admLevel]])) + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
+          g <- ggplot(data=ctryData, aes(x=variable, y=value, col=ctryData[[admLevel]]))
         }
         else
         {
@@ -514,7 +675,7 @@ shinyServer(function(input, output, session){
           g <- ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
         }
 
-        g <- g+ geom_line() + geom_point()
+        g <- g+ geom_line() + geom_point()+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + labs(col=admLevel)
       }
       else if (graphType == "histogram")
       {
