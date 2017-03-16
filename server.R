@@ -95,7 +95,7 @@ shinyServer(function(input, output, session){
           
           ctryCols <- grep("country_code|area|NL_", names(temp))
           
-          temp <- temp[ , ctryCols]
+          temp <- temp[, ctryCols, with=F]
           
           if (is.null(ctryData))
           {
