@@ -422,7 +422,7 @@ shinyServer(function(input, output, session){
     })
     ####reactive hcluster####
     hCluster <- reactive({
-      print(paste0("here: renderPlotCluster"))
+      print(paste0("here: reactive hCluster"))
       input$btnGo
       
       countries <- isolate(input$countries)
@@ -433,15 +433,19 @@ shinyServer(function(input, output, session){
       scale <- input$scale
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
-      
+      admLevel <- ctryAdmLevels()[2]
+
       meltCtryData <- ctryNlDataMelted()
       
-      if (is.null(countries) || is.null(ctryData))
+      if (is.null(countries) || is.null(meltCtryData))
         return()
       
-      aggMeltCtryData <- aggregate(value ~ county+variable, data=meltCtryData, mean)
+      #aggMeltCtryData <- aggregate(mean(value), by=list(eval(admLevel)+variable), data=meltCtryData, mean)
+      aggMeltCtryData <- setNames(meltCtryData[,list(mean(value, na.rm = TRUE)), by = list(meltCtryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
       
-      unmeltCtryData <- dcast(aggMeltCtryData, county ~ variable, value.var='value', aggregate='mean')
+      dcastFormula <- paste(paste(admLevel, collapse = " + "), "~", paste("variable", collapse = " + "))
+      
+      unmeltCtryData <- dcast(aggMeltCtryData, dcastFormula, value.var='value', aggregate='mean')
       
       d <- dist(unmeltCtryData)
       
@@ -455,13 +459,26 @@ shinyServer(function(input, output, session){
     output$plotHCluster <- renderPlot({
       
       clusts <- hCluster()
+      numClusters <- input$kClusters
       
       if (is.null(clusts))
         return()
       
       dendro <- as.dendrogram(clusts)
       
-      ggdendrogram(dendro)
+      cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+      dendro %>% color_branches(k=numClusters) %>% plot(horiz=FALSE, main = "")
+      
+      # add horiz rect
+      dendro %>% rect.dendrogram(k=numClusters,horiz=FALSE)
+      
+#       color_branches(dendro, k = numClusters, col = cbPalette)
+#       
+#       rect.dendrogram(dendro, k=numClusters)
+#       
+#       dendro <- ggdendrogram(dendro)
+      
     })
     
     
@@ -474,6 +491,7 @@ shinyServer(function(input, output, session){
       if(is.null(clusts))
         return()
             
+      admLevel <- ctryAdmLevels()[2]
       numClusters <- input$kClusters
       
       isolate({
@@ -481,11 +499,12 @@ shinyServer(function(input, output, session){
         
         cutClusts <- cutree(clusts, k=numClusters)
         
-        ctryAvg <- aggregate(value ~ county, data=meltCtryData, mean)
+        #ctryAvg <- aggregate(value ~ admLevel, data=meltCtryData, mean)
+        ctryAvg <- setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]])], c(admLevel, "value"))
   
         cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
         
-        g <- ggplot(data=ctryAvg, aes(x=county, y=value, col=as.factor(cutClusts)))+geom_point(size=2)+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))+scale_colour_manual(values=cbPalette)
+        g <- ggplot(data=ctryAvg, aes(x=ctryAvg[[admLevel]], y=value, col=as.factor(cutClusts)))+geom_point(size=2)+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5))+scale_colour_manual(values=cbPalette)
         
         ggplotly(g)
       })
