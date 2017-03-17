@@ -9,7 +9,7 @@ if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.
 
 pacman::p_load(shiny, shinydashboard, plotly)
 
-#pacman::p_load_gh("rstudio/leaflet") #get the github version of leaflet
+pacman::p_load_gh("rstudio/leaflet") #get the github version of leaflet
 
 suppressMessages(library(shiny))
 
@@ -121,9 +121,12 @@ alignCenter <- function(el) {
                                 ),
                        
                        tabPanel(title = "plotHCluster",
-                                plotOutput("plotHCluster"),
-                                sliderInput("kClusters", "k", min=1, max=10, value=2)
-                                )
+                                plotOutput("plotHCluster")
+                                ),
+                       tabPanel(title = "mapHCluster",
+                                leafletOutput("mapHCluster")
+                       ),
+                       sliderInput("kClusters", "Num Clusters", min=1, max=10, value=2)
                      )
                    )
                   ),
