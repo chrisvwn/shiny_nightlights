@@ -431,14 +431,23 @@ shinyServer(function(input, output, session){
         return()
       
       scale <- input$scale
+      
+      isolate({
       nlYearMonthRange <- input$nlYearMonthRange
       graphType <- input$graphType
       admLevel <- ctryAdmLevels()[2]
 
+      #return if the country doesn't have adm levels below country
+      if (is.na(admLevel))
+        return()
+      
       meltCtryData <- ctryNlDataMelted()
       
       if (is.null(countries) || is.null(meltCtryData))
         return()
+      
+      if ("norm_area" %in% scale)
+        meltCtryData$value <- (meltCtryData$value)/meltCtryData$area_sq_km
       
       #aggMeltCtryData <- aggregate(mean(value), by=list(eval(admLevel)+variable), data=meltCtryData, mean)
       aggMeltCtryData <- setNames(meltCtryData[,list(mean(value, na.rm = TRUE)), by = list(meltCtryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
@@ -454,6 +463,7 @@ shinyServer(function(input, output, session){
       h$labels <- unmeltCtryData[[admLevel]]
       
       h
+      })
     })
     
     output$plotHCluster <- renderPlot({
@@ -462,22 +472,20 @@ shinyServer(function(input, output, session){
       numClusters <- input$kClusters
       
       if (is.null(clusts))
-        return()
+        return("Country has no adm levels")
       
+      isolate({
       dendro <- as.dendrogram(clusts)
       
       cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
 
-      dendro %>% color_branches(k=numClusters) %>% plot(horiz=FALSE, main = "")
+      dendro %>% color_branches(k=numClusters, col = cbPalette) %>% 
+        color_labels(k=numClusters, col = cbPalette) %>%
+        plot(horiz=FALSE, main = "")
       
-      # add horiz rect
-      dendro %>% rect.dendrogram(k=numClusters,horiz=FALSE)
+      dendro %>% rect.dendrogram(k=numClusters,horiz=FALSE,border = cbPalette)
       
-#       color_branches(dendro, k = numClusters, col = cbPalette)
-#       
-#       rect.dendrogram(dendro, k=numClusters)
-#       
-#       dendro <- ggdendrogram(dendro)
+      })
       
     })
     
@@ -492,10 +500,20 @@ shinyServer(function(input, output, session){
         return()
             
       admLevel <- ctryAdmLevels()[2]
+
+      
+      #return if the country doesn't have adm levels below country
+      if (admLevel == "")
+        return()
+      
       numClusters <- input$kClusters
+      scale <- input$scale
       
       isolate({
         meltCtryData <- ctryNlDataMelted()
+        
+        if ("norm_area" %in% scale)
+          meltCtryData$value <- (meltCtryData$value)/meltCtryData$area_sq_km
         
         cutClusts <- cutree(clusts, k=numClusters)
         
@@ -510,6 +528,109 @@ shinyServer(function(input, output, session){
       })
     })
     
+    output$mapHCluster <- renderLeaflet({
+      print(paste0("here: draw leaflet map"))
+      # Use leaflet() here, and only include aspects of the map that
+      # won't need to change dynamically (at least, not unless the
+      # entire map is being torn down and recreated).
+      
+      input$btnGo
+      
+      
+      countries <- isolate(input$countries)
+      scale <- input$scale
+      numClusters <- input$kClusters
+      
+      isolate({      
+        if (is.null(countries))
+          return()
+        
+        if (length(countries) != 1)
+        {
+          renderText("Please select only one country/region")
+          return()
+        }
+
+        print("drawing leaflet cluster")
+        
+        clusts <- hCluster()
+        
+        cutClusts <- cutree(clusts, k=numClusters)
+        
+        admLevel <- ctryAdmLevels()[2]
+        
+        meltCtryData <- ctryNlDataMelted()
+        
+        if ("norm_area" %in% scale)
+          meltCtryData$value <- (meltCtryData$value)/meltCtryData$area_sq_km
+        
+        ctryPoly0 <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
+        
+        map <- leaflet(data=ctryPoly0) %>%
+          #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
+          addTiles %>%
+          addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
+          addPolygons(layerId = countries, fill = FALSE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country_code")
+        
+        
+        lvlCtryData <- setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]])], c(admLevel, "value"))
+        
+        lvlCtryData[["rank"]] <- with(lvlCtryData, rank(-value, ties.method = 'first'))
+        
+        cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+        
+        pal <- cbPalette
+        
+        #turn off previous layer? No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
+        ctryPoly <- readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, 1)) 
+        
+        ctryPoly <- spTransform(ctryPoly, wgs84)
+        
+        mapLabels <- sprintf(
+          paste0("%s:%s", "<br/>Cluster: %s", "<br/>Rad:%s", "<br/>Rank: %s/%s"),
+          admLevel, lvlCtryData[[1]], cutClusts, format(lvlCtryData[[2]],scientific = T,digits = 2), lvlCtryData[["rank"]], nrow(lvlCtryData)
+        ) %>% lapply(htmltools::HTML)
+        
+        map <- map %>% addPolygons(
+          data = ctryPoly,
+          layerId = as.character(ctryPoly@data[,'NAME_1']),
+          fill = TRUE,
+          fillColor = pal[cutClusts],
+          fillOpacity = 0.9,
+          stroke = TRUE, 
+          weight=1,
+          smoothFactor = 0.7,
+          opacity = 1,
+          color="white",
+          dashArray = "5",
+          group = admLevel,
+          highlight = highlightOptions(
+            weight = 5,
+            color = "#666",
+            dashArray = "",
+            fillOpacity = 0,
+            bringToFront = TRUE),
+          label = mapLabels,
+          labelOptions = labelOptions(
+            style = list("font-weight" = "normal",
+                         padding = "3px 8px"),
+            textsize = "15px",
+            direction = "auto"
+          )
+        )
+        
+        map <- map %>% addLayersControl(overlayGroups = admLevel)
+        
+        map <- map %>% addLegend(position = "bottomright", 
+                                 colors = pal[unique(cutClusts)], 
+                                 labels = unique(cutClusts),
+                                 #title = "Nightlight percentiles",
+                                 title = "clusters",
+                                 opacity = 1 )
+        
+        map
+      })
+    })
     
     ####renderPlotly plotYearly####
     
