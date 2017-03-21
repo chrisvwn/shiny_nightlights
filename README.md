@@ -1,8 +1,8 @@
 # shiny_nightlights
 
-##Nightlights for R
+## Nightlights for R
 
-###A three-in-one project
+### A three-in-one project
 
 1. Hopefully will end up as a CRAN package. This will allow R users to play around with nightlights. 
 
