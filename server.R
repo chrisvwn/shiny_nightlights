@@ -67,12 +67,6 @@ shinyServer(function(input, output, session){
       colClasses[grep("area_sq_km|NL_", colClasses)] <- "NULL"
       
       data <- fread(getCtryNlDataFnamePath(countries), colClasses = colClasses, header = T)
-      
-#       cols <- names(data)
-#       
-#       cols <- cols[-grep("area|NL_", cols)]
-#       
-#       data[,cols]
     })
     
     #### reactive ctryNlData ####
@@ -467,6 +461,7 @@ shinyServer(function(input, output, session){
     })
     
     output$plotHCluster <- renderPlot({
+      print(paste0("here: plotHCluster"))
       
       clusts <- hCluster()
       numClusters <- input$kClusters
@@ -493,6 +488,14 @@ shinyServer(function(input, output, session){
     ####renderPlotly plotCluster####
     
     output$plotPointsCluster <- renderPlotly({
+      print(paste0("here: plotPointsCluster"))
+      
+      input$btnGo
+      
+      countries <- isolate(input$countries)
+      
+      if(length(countries) < 1)
+        return()
       
       clusts <- hCluster()
 
@@ -529,7 +532,7 @@ shinyServer(function(input, output, session){
     })
     
     output$mapHCluster <- renderLeaflet({
-      print(paste0("here: draw leaflet map"))
+      print(paste0("here: draw mapHCluster"))
       # Use leaflet() here, and only include aspects of the map that
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).
@@ -629,6 +632,49 @@ shinyServer(function(input, output, session){
                                  opacity = 1 )
         
         map
+      })
+    })
+    
+    ####renderPlotly plotTSDecomposed####
+    
+    output$plotTSDecomposed <- renderPlot({
+      print(paste0("here: plotTSDecomposed"))
+      input$btnGo
+      
+      countries <- isolate(input$countries)
+      
+      if(length(countries) < 1)
+        return()
+      
+      admLevel <- ctryAdmLevels()[1]
+      
+      
+      #return if the country doesn't have adm levels below country
+      if (admLevel == "")
+        return()
+      
+      scale <- input$scale
+      
+      isolate({
+        meltCtryData <- ctryNlDataMelted()
+        
+        if ("norm_area" %in% scale)
+          meltCtryData$value <- (meltCtryData$value)/meltCtryData$area_sq_km
+
+        #ctryAvg <- aggregate(value ~ admLevel, data=meltCtryData, mean)
+        ctryAvg <- setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
+        
+        startYear <- year(min(ctryAvg$variable))
+        startMonth <- month(min(ctryAvg$variable))
+        endYear <- year(max(ctryAvg$variable))
+        endMonth <- month(max(ctryAvg$variable))
+        
+        ctryDataTS <- ts(ctryAvg$value, start = c(startYear,startMonth), end = c(endYear,endMonth), frequency = 12)
+
+        ctryDataTScomponents <- decompose(ctryDataTS)
+        g <- autoplot(ctryDataTScomponents)
+        
+        plot(ctryDataTScomponents)
       })
     })
     
@@ -1047,7 +1093,7 @@ shinyServer(function(input, output, session){
           
           #temp <- as.data.table(ctryData)
           #data already in data.table form
-          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[["variable"]])],c(iterAdmLevelName, "variable", "value"))
+          lvlCtryData <- setNames(ctryData[,list(mean(value,na.rm=T), sum(area_sq_km, na.rm=T)), by=list(ctryData[[iterAdmLevelName]], ctryData[["variable"]])], c(iterAdmLevelName, "variable", "value", "area_sq_km"))
           #lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
@@ -1072,8 +1118,8 @@ shinyServer(function(input, output, session){
           
 
           mapLabels <- sprintf(
-            paste0("<strong>%s:%s</strong>", "<br/>%s", "<br/>%s", "<br/>rank: %s/%s"),
-            ctryAdmLevels[iterAdmLevel], lvlCtryData[[1]], lvlCtryData[[2]], format(lvlCtryData[[3]],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
+            paste0("<strong>%s:%s</strong>", "<br/>Area: %s km<superscript>2</superscript>","<br/>Date: %s", ifelse("norm_area" %in% scale, "<br/>Rad: %s /sq.km", "<br/>Rad: %s"), "<br/>Rank: %s/%s"),
+            ctryAdmLevels[iterAdmLevel], lvlCtryData[[ctryAdmLevels[iterAdmLevel]]], format(lvlCtryData[["area_sq_km"]],scientific = T,digits = 2), lvlCtryData[["variable"]], format(lvlCtryData[["value"]],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
           ) %>% lapply(htmltools::HTML)
 
           map <- map %>% addPolygons(
