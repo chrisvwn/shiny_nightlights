@@ -128,7 +128,16 @@ alignCenter <- function(el) {
                        ),
                        sliderInput("kClusters", "Num Clusters", min=1, max=10, value=2)
                      )
-                   )
+                   ),
+                  
+                  fluidRow(
+                    tabBox(
+                      tabPanel(title = "Time Series Decomposed",
+                               plotOutput("plotTSDecomposed")
+                      
+                      )
+                    )
+                  )
                   ),
           
           tabItem(tabName = "models",
