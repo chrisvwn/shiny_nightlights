@@ -9,7 +9,7 @@ if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.
 
 pacman::p_load(shiny, ggplot2, plotly, reshape, rgdal, RColorBrewer, ggdendro, dendextend)
 
-pacman::p_load_gh("rstudio/leaflet")
+pacman::p_load_gh("rstudio/leaflet", "cloudyr/aws.s3")
 
 library(shiny)
 library(ggplot2)
@@ -20,6 +20,7 @@ library(rgdal)
 library(RColorBrewer)
 library(ggdendro)
 library(dendextend)
+library(aws.s3)
 
 source("nightlights.R")
 options(shiny.trace=F)

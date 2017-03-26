@@ -9,7 +9,7 @@ if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.
 
 pacman::p_load(shiny, shinydashboard, plotly)
 
-pacman::p_load_gh("rstudio/leaflet") #get the github version of leaflet
+pacman::p_load_gh("rstudio/leaflet", "cloudyr/aws.s3") #get the github version of leaflet
 
 suppressMessages(library(shiny))
 
@@ -21,6 +21,7 @@ suppressMessages(source("nightlights.R"))
 
 suppressMessages(library(plotly))
 
+suppressMessages(library(aws.s3))
 
 filenames<-list.files(dirNlData)
 

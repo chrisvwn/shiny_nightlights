@@ -20,11 +20,13 @@
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
 pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff)
+pacman::p_load_gh("cloudyr/aws.s3")
 
 require(readr)
 require(dplyr)
 library(data.table)
 require(ff)
+library(aws.s3)
 
 require(lubridate)
 
