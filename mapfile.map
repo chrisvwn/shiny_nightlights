@@ -1,0 +1,58 @@
+  
+MAP
+  IMAGETYPE     PNG
+  EXTENT	-180 -90 180 90  
+  SIZE		800 600
+  SHAPEPATH      "/var/www/cgi-bin"
+  IMAGECOLOR     "#ffffffff"
+  TRANSPARENT 	FALSE
+  SHAPEPATH	/btrfs/shiny_nightlights/outputrasters
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  OUTPUTFORMAT
+    NAME GEOTIFF
+    DRIVER "GDAL/GTiff"
+    MIMETYPE "image/tiff"
+    IMAGEMODE "RGB"
+    EXTENSION "tif"
+  END
+
+  WEB
+    METADATA
+      "wms_title" "Nightlight Rasters"
+      "wms_onlineresource" "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map"
+      "wms_description" "nightlights"
+      "wms_name" "Nightlights"
+      "wms_label" "Nightlights" 
+      "wms_srs" "EPSG:3857"
+      "wms_extent" "-180 -90 180 90"
+      "wms_formats" "GEOTIFF"
+      "wms_enable_request" "*"
+    END
+  END
+
+    NAME        Nightlights
+
+    METADATA
+      "wms_title"               "Nightlights"
+      "wms_enable_request"      "*"
+      "wms_srs"                 "EPSG:4326"
+      "wms_extent"              "-180 -90 180 90"
+      "wms_include_items"       "all"
+      "wms_dataurl_format"      "text/html"
+    END
+
+    EXTENT      -180 -90 180 90
+        TILEINDEX      /btrfs/shiny_nightlights/outputrasters/nightlights_201204.tif
+        TILEITEM       "location"
+    STATUS      OFF
+    TYPE        RASTER
+
+    DUMP TRUE
+    PROJECTION
+      "init=epsg:4326"
+    END    
+END
