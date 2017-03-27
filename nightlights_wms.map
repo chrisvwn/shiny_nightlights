@@ -1,0 +1,200 @@
+MAP
+  IMAGETYPE     PNG
+  EXTENT	-180 -90 180 90  
+  SIZE		800 600
+  SHAPEPATH      "/var/www/cgi-bin"
+  IMAGECOLOR     "#ffffffff"
+  TRANSPARENT 	FALSE
+  SHAPEPATH	/btrfs/shiny_nightlights/outputrasters
+  CONFIG "MS_ERRORFILE" "ms_error.log"
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  OUTPUTFORMAT
+    NAME GEOTIFF
+    DRIVER "GDAL/GTiff"
+    MIMETYPE "image/tiff"
+    IMAGEMODE "RGB"
+    EXTENSION "tif"
+  END
+
+  WEB
+    METADATA
+      "wms_title" "Nightlight Rasters"
+      "wms_onlineresource" "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map"
+      "wms_description" "nightlights"
+      "wms_name" "Nightlights"
+      "wms_label" "Nightlights" 
+      "wms_srs" "EPSG:3857"
+      "wms_extent" "-180 -90 180 90"
+      "wms_formats" "GEOTIFF"
+      "wms_enable_request" "*"
+    END
+  END
+
+  LAYER # raster layer 
+    NAME	"nightlights_201204" 
+
+    METADATA
+      "wms_title"		"nightlights_201204"
+      "wms_enable_request"	"*"
+      "wms_srs"			"EPSG:4326"
+      "wms_extent"		"-180 -90 180 90"
+      "wms_include_items"	"all"
+      "wms_dataurl_format"	"text/html"
+    END
+
+    EXTENT	-180 -90 180 90
+#    DATA	/btrfs/shiny_nightlights/outputrasters/KEN_201204.tif
+    TILEINDEX	/btrfs/shiny_nightlights/outputrasters/nightlights_201204.tif
+    TILEITEM	"location"
+    STATUS	ON
+    TYPE	RASTER
+
+    DUMP TRUE
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+#    CLASSITEM "[pixel]"
+
+    CLASS
+      NAME "NODATA"
+      EXPRESSION ([pixel] = -1.69999999999999994e+308)
+
+      STYLE
+        OPACITY 0
+      END
+    END
+
+    CLASS
+      NAME "DEC0"
+      EXPRESSION ([pixel] > -1.69999999999999994e+308 AND [pixel] < -0.02506944)
+      STYLE
+        OPACITY 100
+        COLOR "#000000"
+      END
+    END
+
+    CLASS
+      NAME "DEC1"
+      EXPRESSION ([pixel] >= -0.02506944 AND [pixel] < 0.01621534 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#5A5A5A"
+      END
+    END
+
+    CLASS
+      NAME "DEC2"
+      EXPRESSION ([pixel] >= 0.01621534 AND [pixel] < 0.05750013 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#7B7B7B"
+      END
+    END
+
+    CLASS
+      NAME "DEC3"
+      EXPRESSION ([pixel] >= 0.05750013 AND [pixel] < 0.09878491)
+
+      STYLE
+        OPACITY 100
+        COLOR "#949494"
+      END
+    END
+
+    CLASS
+      NAME "DEC4"
+      EXPRESSION ([pixel] >= 0.09878491 AND [pixel] < 0.14006969 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#A8A8A8"
+      END
+    END
+
+    CLASS
+      NAME "DEC5"
+      EXPRESSION ([pixel] >= 0.14006969 AND [pixel] < 0.18135447 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#BABABA"
+      END
+    END
+
+    CLASS
+      NAME "DEC6"
+      EXPRESSION ([pixel] >= 0.18135447 AND [pixel] < 0.22263926 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#CACACA"
+      END
+    END
+
+    CLASS
+      NAME "DEC7"
+      EXPRESSION ([pixel] >= 0.22263926 AND [pixel] < 0.26392404 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#D9D9D9"
+      END
+    END
+
+    CLASS
+      NAME "DEC8"
+      EXPRESSION ([pixel] >= 0.26392404 AND [pixel] < 0.30520882)
+
+      STYLE
+        OPACITY 100
+        COLOR "#E6E6E6"
+      END
+    END
+
+    CLASS
+      NAME "DEC9"
+      EXPRESSION ([pixel] >= 0.30520882 AND [pixel] < 0.34649360 )
+
+      STYLE
+        OPACITY 100
+        COLOR "#F3F3F3"
+      END
+    END
+
+    CLASS
+      NAME "DEC10"
+      EXPRESSION ([pixel] > 0.34649360)
+
+      STYLE
+        OPACITY 100
+        COLOR "#FFFFFF"
+      END
+    END
+  END # MODIS raster layer ends here
+
+#  LAYER
+#    NAME my_shapefile
+#    TYPE POLYGON
+#    DATA /btrfs/shiny_nightlights/polygons/KEN_adm_shp/KEN_adm0
+#    STATUS OFF
+#    NAME "country"
+#
+#    CLASS
+#      STYLE
+#        OUTLINECOLOR 0 0 255
+#      END
+#    END
+#
+#    PROJECTION
+#      "init=epsg:4326"
+#    END
+#  END
+
+END 
