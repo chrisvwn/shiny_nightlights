@@ -78,6 +78,9 @@ cropMaskMethod <- "gdal"
 
 extractMethod <- "gdal"
 
+#downloadMethod used options: wget, aria
+downloadMethod <- "aria"
+
 omitCountries <- "none"
 
 #' Create mapping of VIIRS nightlight tiles
@@ -765,26 +768,23 @@ validNlTileNum <- function(nlTileNum, nlType)
     return(FALSE)
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Constructs the filename used to save/access the downloaded VIIRS .tgz file
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Constructs the filename used to save/access the downloaded VIIRS .tgz file
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param nlYear the year in which the tile was created
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param nlMonth the month in which the tile was created
 #' 
-#' @return TRUE/FALSE
+#' @param tileNum the index of the tile as given in nlTileIndex
+#'
+#' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
+#'   
+#' @return a character vector filename of the .tgz VIIRS tile
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#' getNtLtsZipLclNameVIIRS("2014", "01", "1")
+#'  returns "./tiles/viirs_2014_01_75N180W.tgz"
 #'  
 #' @export
 getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
@@ -818,26 +818,25 @@ getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS
   return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz"))
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Constructs the filename used to save/access the decompressed VIIRS .tif file
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Constructs the filename used to save/access the decompressed VIIRS .tif file
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param nlYear the year in which the tile was created
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param nlMonth the month in which the tile was created
 #' 
-#' @return TRUE/FALSE
+#' @param tileNum the index of the tile as given in nlTileIndex
+#'
+#' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
+#'   
+#' @return a character vector filename of the .tif VIIRS tile
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' #using default dirRasterVIIRS
+#' getNtLtsTifLclNameVIIRS("2014", "01", "1")
+#'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
 #'  
 #' @export
 getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
@@ -882,9 +881,7 @@ getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
-#' result <- getNtLtsViirs("2012", "05", "1")
-#' 
-#' if (result)
+#' if(getNtLtsViirs("2012", "05", "1"))
 #'   print("download successful")
 #'  
 #' @export
@@ -902,8 +899,13 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
   {
     ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
     
-    #rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalNameVIIRS, mode = "wb", method = "wget", extra = "-c")
-    rsltDnld <- system(paste0("aria2c -c -x2 ", ntLtsFileUrl, " -o ", ntLtsZipLocalNameVIIRS))
+    if (!(downloadMethod %in% c("wget", "aria")))
+      downloadMethod <- "wget"
+    
+    if (downloadMethod == "wget")
+      rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalNameVIIRS, mode = "wb", method = "wget", extra = "-c")
+    else if (downloadMethod == "aria")
+      rsltDnld <- system(paste0("aria2c -c -x2 ", ntLtsFileUrl, " -o ", ntLtsZipLocalNameVIIRS))
   }
   else
   {
@@ -959,22 +961,29 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
 #'
 #' Download VIIRS nightlight tile
 #'
-#' @param nlYear the year in "YYYY"/"%Y" format e.g. "2012"
+#' @param shp the country Polygon layer as SpatialPolygon
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param rast the clipped country raster
 #' 
-#' @param tileNum the index of the tile as given by getNlTiles()
+#' @param i the index of the polygon in the country polygon layer (shp)
 #' 
-#' @return TRUE/FALSE Whether the download was successful
+#' @return numeric vector of radiances
 #'
-#' @examples
-#' result <- getNtLtsViirs("2012", "05", "1")
-#' 
-#' if (result)
-#'   print("download successful")
+#' @example
+#' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN", 1))
+#' ctryRaster <- raster(getCtryRasterOutputFname("KEN", "201204"))
+#' temp <- NULL
+#' KenAdm1Sum <- NULL
+#' for (i in 1:5)#length(ctryPoly@polygons))
+#' {
+#'  temp$name <- as.character(ctryPoly@data$NAME_1[i])
+#'  temp$sum <- sum(masq_viirs(ctryPoly, ctryRaster, i), na.rm=T)
+#'  
+#'  KenAdm1Sum <- rbind(KenAdm1Sum)
+#' }
 #'  
 #' @export
-masq_viirs <- function(shp,rast,i)
+masq_viirs <- function(shp, rast, i)
 {
   #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
   #slightly modified to use faster masking method by converting the raster to vector
@@ -1002,32 +1011,22 @@ masq_viirs <- function(shp,rast,i)
   
   #data <- data[!is.na(data)] #keep non-NA values only ... shall this affect mask values?
   #data[is.na(data)] <- 0
-  data[data < 0] <- NA #any negative values are either recording problems or error values as per: 
+  data[data < 0] <- NA #any negative values are either recording problems or error values as per: ... Negative values would distort most calculations. 
   
   return(data) 
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Function to return the url of the OLS tile to download
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Function to return the url of the OLS tile to download given the year, month, and nlTile index
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param inYear
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @return Character string Url of the VIIRS tile file
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' tileUrl <- getNtLtsUrlOls("1999")
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 getNtLtsUrlOls <- function(inYear, inTile)
 {
@@ -1113,26 +1112,25 @@ getNtLtsZipLclNameOLS <- function(nlYear, tileNum)
 }
 
 
-#' Check if a month number is valid for a given nightlight type
+#' Constructs the filename used to save/access the decompressed OLS .tif file
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Constructs the filename used to save/access the decompressed OLS .tif file
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param nlYear the year in which the tile was created
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param nlMonth the month in which the tile was created
 #' 
-#' @return TRUE/FALSE
+#' @param tileNum the index of the tile as given in nlTileIndex
+#'
+#' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
+#'   
+#' @return a character vector filename of the .tif VIIRS tile
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' #using default dirRasterOLS
+#' getNtLtsTifLclNameOLS("2014", "01", "1")
+#'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
 #'  
 #' @export
 getNtLtsTifLclNameOLS <- function(nlYear, tileNum)
@@ -1140,16 +1138,14 @@ getNtLtsTifLclNameOLS <- function(nlYear, tileNum)
   return (paste0(dirRasterOLS, "/ols_", nlYear, "_", tileNum, ".tif"))
 }
 
-#' Download VIIRS nightlight tile
+#' Download OLS nightlight tile in TIF format from NOAA compressed as .tgz
 #'
-#' Download VIIRS nightlight tile
+#' Download OLS nightlight tile in TIF format from NOAA compressed as .tgz
 #'
 #' @param nlYear the year in "YYYY"/"%Y" format e.g. "2012"
+#' 
+#' @param dir 
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param tileNum the index of the tile as given by getNlTiles()
-#' 
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
@@ -1222,19 +1218,26 @@ getNtLtsOLS <- function(nlYear, tileNum)
 #'
 #' Download VIIRS nightlight tile
 #'
-#' @param nlYear the year in "YYYY"/"%Y" format e.g. "2012"
+#' @param shp the country Polygon layer as SpatialPolygon
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param rast the clipped country raster
 #' 
-#' @param tileNum the index of the tile as given by getNlTiles()
+#' @param i the index of the polygon in the country polygon layer (shp)
 #' 
-#' @return TRUE/FALSE Whether the download was successful
+#' @return numeric vector of radiances
 #'
-#' @examples
-#' result <- getNtLtsViirs("2012", "05", "1")
-#' 
-#' if (result)
-#'   print("download successful")
+#' @example
+#' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN", 1))
+#' ctryRaster <- raster(getCtryRasterOutputFname("KEN", "1999"))
+#' temp <- NULL
+#' KenAdm1Sum <- NULL
+#' for (i in 1:5)#length(ctryPoly@polygons))
+#' {
+#'  temp$name <- as.character(ctryPoly@data$NAME_1[i])
+#'  temp$sum <- sum(masq_ols(ctryPoly, ctryRaster, i), na.rm=T)
+#'  
+#'  KenAdm1Sum <- rbind(KenAdm1Sum)
+#' }
 #'  
 #' @export
 masq_ols <- function(shp, rast, i)
@@ -1570,26 +1573,17 @@ processNLCountryOls <- function(cntryCode, nlYear)
     
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Initiates the country nightlight dataframe with the admin levels read from the polygon
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Initiates the country nightlight dataframe with the admin levels read from the polygon
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param ctryCode the ISO3 code of the country
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @return dataframe
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#' initCtryNlData <- createCtryNlDataDF("KEN")
+#'  returns
 #'  
 #' @export
 createCtryNlDataDF <- function(ctryCode)
@@ -1678,18 +1672,17 @@ processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
   }
 }
 
-#' Get the integer number of the layer
+#' Get the integer number of the layer. topmost country layer=0
 #'
-#' Get the integer number of the layer. Is usually the last character in the name and is a digit. E.g. for the
-#'     layername "KEN_adm3" the layer number is "3"
+#' Get the integer number of the layer. Is the last character in the name and is a digit. E.g. for the 3rd layer in Kenya shapefile polygon named "KEN_adm3" the layer number is "3"
 #' 
 #' @param layerName - the name of the polygon layer
 #' 
 #' @return Integer layer number
 #'
 #' @examples
-#' ctryShpLyrName2Num("KEN_adm0")
-#'   #returns 0
+#' ctryShpLyrName2Num("KEN_adm1")
+#'   #returns 1
 #'  
 #' @export
 ctryShpLyrName2Num <- function(layerName)
@@ -2648,26 +2641,18 @@ getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
   return (ctryTiles)
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Check if the VIIRS nightlight data for the country exists in the country nightlight data file
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if the VIIRS nightlight data for the country exists in the country nightlight data file. First checks if the country nightlight data file exists.
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param ctryCode the ISO3 code of the country
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param nlYearMonth a character vector of the year and month concatenated
 #' 
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#' existsCtryNlDataVIIRS("KEN", "201204")
 #'  
 #' @export
 existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
@@ -2685,27 +2670,44 @@ existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
     return(FALSE)
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Downloads nightlight tiles and country polygons, clips the rasters and extracts data from them
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Downloads nightlight tiles and country polygons, clips the rasters and extracts data from them cacheing the data and clipped rasters locally
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param ctryCodes the list of countries to be processed
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param nlYearMonths the concatenated year+month(s) to be processed
+#' 
+#' @param nlType the type of nightlights to process i.e. OLS/VIIRS
 #' 
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' 
+#' #Example 1: process nightlights for all countries and all periods available
+#' initNtLts() #improve performance by initializing some variables
+#'  
+#' processNtLts() 
+#' 
+#' #Example 2: process nightlights for all countries in 2012 only
+#' initNtLts()
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
+#' nlYrMths <- getAllNlYears()
+#'
+#' nlYrMths <- nlYrMths[grep("^2012", nlYrMths)]
+#'
+#' processNtLts(nlYearMonths=nlYrMths)
 #'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#'  #Example 3: process nightlights for all KEN & RWA in 2012 only
+#' initNtLts()
+#'
+#' cCodes <- c("KEN", "RWA")
 #'  
+#' nlYrMths <- getAllNlYears()
+#'
+#' nlYrMths <- nlYrMths[grep("^2012", nlYrMths)]
+#'
+#' processNtLts(ctryCodes=cCodes, nlYearMonths=nlYrMths)
 #' @export
 processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAllNlYears(), nlType="VIIRS")
 {
@@ -2840,26 +2842,15 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
   }
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Initialize some important variables
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Initialize some important variables
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @return NULL
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
 #'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#'  initNtLts()
 #'  
 #' @export
 initNtLts <- function(omitCountries="none")
@@ -2897,26 +2888,14 @@ initNtLts <- function(omitCountries="none")
   #
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Clean up the environment after processing (Not yet implemented)
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Clean up the environment after processing (Not yet implemented)
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @return NULL
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
+#'  cleanup()
 #'  
 #' @export
 cleanup <- function()
@@ -2930,30 +2909,27 @@ cleanup <- function()
   #
 }
 
-library(raster)
-
-#' Check if a month number is valid for a given nightlight type
+#' Calculate zonal statistics. Used internally
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Calculate zonal statistics. Used internally by zonalpipe
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param x the country raster
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param z the zonal country polygon layer
 #' 
-#' @return TRUE/FALSE
+#' @param stat the function to calculate on 
+#' 
+#' @param digits round off to how many decimals 
+#' 
+#' @param na.rm how to handle NAs
+#' 
+#' @param ...
+#' 
+#' @return numeric value result of the given stat function
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
+#' myZonal
 #'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
-#' @export
 myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...) 
 { 
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
@@ -2995,26 +2971,31 @@ myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...)
   return(result)
 } 
 
-#' Check if a month number is valid for a given nightlight type
+#' Create a zonal file if it does not exist and calculate the zonal stats
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Create a zonal file if it does not exist and calculate the zonal stats by calling the myZonal function
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param ctryCode
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param ctryPoly
+#' 
+#' @param path.in.shp
+#' 
+#' @param path.in.r
+#' 
+#' @param path.out.r
+#' 
+#' @param path.out.shp
+#' 
+#' @param zone.attribute
+#' 
+#' @param stat
 #' 
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
+#' 
 #'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
 #'  
 #' @export
 ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat)
@@ -3087,26 +3068,21 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
   #writeOGR(shp, path.out.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)), driver="ESRI Shapefile")
 }
 
-#' Check if a month number is valid for a given nightlight type
+#' Calculate zonal statistics. Alternative to masq_viirs using GDAL. Faster for large polygons.
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Calculate zonal statistics. Alternative to masq_viirs using GDAL. Faster for large polygons.
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param ctryCode the ISO3 country code to be processed
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
+#' @param ctryPoly the loaded country polygon layer
 #' 
-#' @return TRUE/FALSE
+#' @param nlYearMonth the concatenated year+month to be processed
+#' 
+#' @return data.frame of polygon attributes and the calculated stats
 #'
 #' @examples
 #' validNlMonthNum("01","VIIRS")
 #'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
 #'  
 #' @export
 fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth)
@@ -3222,6 +3198,7 @@ getRastPercentiles <- function(rastFilename)
   
   return (c(q2,q98))
 }
+
 
 writeNightlightsMap <- function()
 {
