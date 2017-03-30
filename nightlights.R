@@ -20,13 +20,11 @@
 if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 
 pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff)
-pacman::p_load_gh("cloudyr/aws.s3")
 
 require(readr)
 require(dplyr)
 library(data.table)
 require(ff)
-library(aws.s3)
 
 require(lubridate)
 
@@ -1892,8 +1890,8 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
   
   #cmd <- paste0("gdal_translate -co TILED=YES -co COMPRESS=JPEG -ot Byte -scale ", qnt2, " ", qnt98," 0 255 ", getCtryRasterOutputFname(ctryCode,nlYearMonth), " ", dirRasterWeb, "/", ctryCode, "_", nlYearMonth, "_JPEG.tif")
   
-  message("Create web raster ", base::date())
-  system(cmd)
+  #message("Create web raster ", base::date())
+  #system(cmd)
   
   message("Begin extracting the data from the merged raster ", base::date())
   
