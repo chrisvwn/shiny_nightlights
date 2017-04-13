@@ -1,5 +1,5 @@
 #TODO:
-#+ gzip all outputrasters and extract/delete tifs as required 
+#+ gzip all outputrasters and extract/delete tifs as required
 #+ delete the 2nd tif in the tiles (avg_rad_...).
 #+ keep tiles gzipped until required. extract/delete as needed
 #+ modularize everything; processNtLts especially
@@ -11,77 +11,146 @@
 #+ zone files functions
 #+ logging
 #+ debug mode
+#+ do not export internal functions?
+#+ remove dependency on rworldmap?
+#+ aggregating by date e.g. quarterly, semi-annually, annually
 #+ verify treatment of ATA i.e. single adm level countries
 #+ logic of getCtryPolyAdmLevelNames esp lvlEngName assignment needs scrutiny
-#+OLS
+#+ OLS
+#+ store data in RDS format instead of CSV?
 
 #Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal crop to extent would be highly desirable though so seeking other gdal-based workarounds
 
-if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+# if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+#
+# pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff, validate)
+#
+# require(readr)
+# require(dplyr)
+# library(data.table)
+# require(ff)
+# require(validate)
+# 
+# require(lubridate)
+#
+# require(rgdal)
+# require(gdalUtils)
+# require(raster)
+#
+# require(sp)
+# require(rgeos)
+# require(rworldmap)
+# require(cleangeo)
+#
+# require(foreach) #Enables for-each statements to be used for parallel processing
+# require(doParallel) #Allows for parallel processing using multiple cores
+#
+# require(compiler)
 
-pacman::p_load(readr, dplyr, lubridate, rgdal, raster, sp, rgeos, rworldmap, cleangeo, foreach, doParallel, compiler, gdalUtils, data.table, ff)
+compiler::enableJIT(0)
 
-require(readr)
-require(dplyr)
-library(data.table)
-require(ff)
-
-require(lubridate)
-
-require(rgdal)
-require(gdalUtils)
-require(raster)
-
-require(sp)
-require(rgeos)
-require(rworldmap)
-require(cleangeo)
-
-library(foreach) #Enables for-each statements to be used for parallel processing
-library(doParallel) #Allows for parallel processing using multiple cores
-
-require(compiler)
-
-enableJIT(0)
-
-#rasterOptions(tmpdir = "/media/NewVolume/Downloads/RTemp/")
-
-ntLtsIndexUrlViirs <- "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
-
+#global constants
+map <- rworldmap::getMap()
+map <- cleangeo::clgeo_Clean(map)
+shpTopLyrName <- "adm0"
 #projection system to use
 #can we use only one or does it depend on the shapefile loaded?
 wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
+ntLtsIndexUrlViirs = "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
-map <- rworldmap::getMap()
-map <- clgeo_Clean(map)
+######################## RNIGHTLIGHTSOPTIONS ###################################
 
-#Set raster directory path
-dirRasterOLS <- "./tiles"
+RNIGHTLIGHTSOPTIONS <- settings::options_manager(
+  #Change the temp dir to use e.g. if the system temp dir does not have enough space
+  tmpDir = raster::tmpDir(),
+  
+  dirNightlights = "./rnightlights",
 
-#Set directory path
-dirRasterVIIRS <- "./tiles"
+  #Set raster directory path
+  dirRasterOLS = "tiles",
+  
+  #Set directory path
+  dirRasterVIIRS = "tiles",
+  
+  dirRasterOutput = "outputrasters",
+  
+  dirRasterWeb = "outputrasters_web",
+  
+  dirZonals = "zonals",
+  
+  dirPolygon = "polygons",
+  
+  dirNlData = "data",
+  
+  #cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdal" or "rast" gdal is usually faster but requires gdal to be installed on the system
+  cropMaskMethod = "gdal",
+  
+  extractMethod = "gdal",
+  
+  #downloadMethod used options: wget, aria
+  downloadMethod = "aria",
+  
+  omitCountries = "missing",
+  
+  deleteTiles = TRUE,
+  
+  .allowed = list(
+    cropMaskMethod = settings::inlist("gdal","rast"),
+    extractMethod = settings::inlist("gdal", "rast"),
+    downloadMethod = settings::inlist("wget", "aria"),
+    omitCountries = settings::inlist("error", "missing", "long", "all", "none")
+  )
+)
 
-dirRasterOutput <- "./outputrasters"
+######################## pkg_options ###################################
 
-dirRasterWeb <- "./outputrasters_web"
+#' Set or get options for the rnightlights package
+#' 
+#' @param ... Option names to retrieve option values or \code{[key]=[value]} pairs to set options.
+#'
+#' @section Supported options:
+#' The following options are supported
+#' \itemize{
+#'  \item{\code{dirRasterOLS}}{(\code{character}) The directory in which to store the downloaded OLS raster tiles }
+#'  \item{\code{dirRasterVIIRS}}{(\code{character}) The directory in which to store the downloaded VIIRS raster tiles }
+#'  \item{\code{dirRasterOutput}}{(\code{character}) The directory in which to store the clipped country rasters }
+#'  \item{\code{dirRasterWeb}}{(\code{character}) The directory in which to store the rasters resampled for web display }
+#'  \item{\code{dirZonals}}{(\code{character}) The directory in which to store the zonal statistics country polygon }
+#'  \item{\code{dirPolygon}}{(\code{character}) The directory to store the downloaded country administration level polygons }
+#'  \item{\code{dirNlData}}{(\code{character}) The directory to store the extracted data files in }
+#'  \item{\code{cropMaskMethod}}{(\code{character}) The method to use to clip the nightlight raster tiles to the country boundaries }
+#'  \item{\code{extractMethod}}{(\code{character}) The method to use to extract data from the rasters }
+#'  \item{\code{downloadMethod}}{(\code{character}) The download method to use }
+#'  \item{\code{omitCountries}}{(\code{character}) The countries to exclude in processing }
+#' }
+#' @return if an option name is supplied as a parameter this returns the value, else a list of all options is returned.
+#' 
+#' @examples
+#' pkg_options("cropMaskMethod")
+#' 
+#' pkg_options()
+#' 
+#' pkg_options("cropMaskMethod"="gdal")
+#' 
+#' @export
+pkg_options <- function(...)
+{
+  settings::stop_if_reserved(...)
+  
+  RNIGHTLIGHTSOPTIONS(...)
+}
 
-dirZonals <- "./zonals"
+######################## pkg_reset ###################################
 
-dirPolygon <- "./polygons"
+#' Reset global options for the rnightlights package
+#'
+#' @export
+pkg_reset <- function()
+{
+  settings::reset(RNIGHTLIGHTSOPTIONS)
+}
 
-dirNlData <- "./data"
-
-shpTopLyrName <- "adm0"
-
-#cropMaskMethod" Method used to crop and mask tiles to country polygons. options: "gdal" or "rast" gdal is usually faster but requires gdal to be installed on the system
-cropMaskMethod <- "gdal" 
-
-extractMethod <- "gdal"
-
-#downloadMethod used options: wget, aria
-downloadMethod <- "aria"
-
-omitCountries <- "none"
+######################## getNlTiles ###################################
 
 #' Create mapping of VIIRS nightlight tiles
 #'
@@ -100,15 +169,15 @@ getNlTiles <- function()
   #6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
   #creates columns as strings. createSpPolysDF converts relevant columns to numeric
   nlTiles <- as.data.frame(cbind(id=c(1,2,3,4,5,6), name=c("75N180W", "75N060W", "75N060E", "00N180W", "00N060W", "00N060E"), minx=c(-180, -60, 60, -180, -60, 60), maxx=c(-60, 60, 180, -60, 60, 180), miny=c(0, 0, 0, -75, -75, -75), maxy=c(75, 75, 75, 0, 0, 0)), stringsAsFactors=F)
-  
+
   return (nlTiles)
 }
 
+######################## existsNlTiles ###################################
+
 #' Checks if the nlTiles data.frame variable exists
 #'
-#' Checks if the nlTiles data.frame variable exists in the environment and that it is not null or empty.
-#'     This is used by other functions that depend on the nlTiles data.frame to check if it exists. If
-#'     it doesn't they may create the data.frame.
+#' Checks if the nlTiles data.frame variable exists in the environment and that it is not null or empty. This is used by other functions that depend on the nlTiles data.frame to check if it exists. If it doesn't they may create the data.frame.
 #'
 #' @return TRUE/FALSE
 #'
@@ -125,12 +194,11 @@ existsNlTiles <- function()
     return (FALSE)
 }
 
+######################## existsTSpPolysDFs ###################################
+
 #' Checks if the variable \code{"tSpPolysDFs"} exists
 #'
-#' Checks if the \code{"tSpPolysDFs"} (tile Spatial Polygons DataFrame) variable exists in the environment 
-#'     and that it is not null.
-#'     This is used by other functions that depend on the \code{"tSpPolysDFs"} data.frame to check if it exists. 
-#'     If it doesn't they can create the data.frame.
+#' Checks if the \code{"tSpPolysDFs"} (tile Spatial Polygons DataFrame) variable exists in the environment   and that it is not null. This is used by other functions that depend on the \code{"tSpPolysDFs"} data.frame to check if it exists. If it doesn't they can create the data.frame.
 #'
 #' @return TRUE/FALSE
 #'
@@ -141,11 +209,13 @@ existsNlTiles <- function()
 #' @export
 existsTSpPolysDFs <- function()
 {
-  if (exists("tSpPolysDFs") && class(tSpPolysDFs) == "SpatialPolygonsDataFrame" && !is.null(SpatialPolygonsDataFrame))
+  if (exists("tSpPolysDFs") && class(tSpPolysDFs) == "SpatialPolygonsDataFrame" && !is.null(tSpPolysDFs))
     return(TRUE)
   else
     return(FALSE)
 }
+
+######################## createNlTilesSpPolysDF ###################################
 
 #' Creates a tile Spatial Polygons DataFrame from the \code{"nlTiles"} dataframe
 #'
@@ -163,81 +233,92 @@ createNlTilesSpPolysDF <- function()
   {
     nlTiles <- getNlTiles()
   }
-  
+
   #convert nlTiles min/max columns to numeric
   for (cIdx in grep("id|min|max", names(nlTiles))) nlTiles[,cIdx] <- as.numeric(as.character(nlTiles[, cIdx]))
-  
+
   #create the empty obj to hold the data frame of tile PolygonsDataFrams
   tSpPolysDFs <- NULL
-  
+
   #for each row in nlTiles
   for (i in 1:nrow(nlTiles))
   {
     #grab the row containing the tile
     t <- nlTiles[i,]
-    
+
     #convert the tile x,y extents to a matrix
     #format is 2 cols x & y
     tMat <- as.matrix(cbind(rbind(t$minx, t$maxx, t$maxx, t$minx), rbind(t$maxy, t$maxy, t$miny, t$miny)))
-    
+
     #create a Polygon object from the tile extents matrix
-    tPoly <- list(Polygon(tMat))
-  
+    tPoly <- list(sp::Polygon(tMat))
+
     #create a Polygons object with a list of 1 polygon
-    tPolys <- Polygons(srl = tPoly, ID = "nltiles")
-    
+    tPolys <- sp::Polygons(srl = tPoly, ID = i)
+
     #create a SpatialPolygons object with a list of 1 list of Polygons
-    tSpPolys <- SpatialPolygons(Srl = list(tPolys))
-    
+    tSpPolys <- sp::SpatialPolygons(Srl = list(tPolys))
+
     #we assign the CRS at this point (note other objects cannot be assigned CRS)
-    projection(tSpPolys) <- CRS(wgs84)
-    
+    raster::projection(tSpPolys) <- sp::CRS(wgs84)
+
     #convert the SpatialPolygons object into a SpatialPolygonsDataFrame
-    tSpPolysDF <- as(tSpPolys, "SpatialPolygonsDataFrame")
+    #tSpPolysDF <- as(tSpPolys, "SpatialPolygonsDataFrame")
     
+    #z used for plotCtryWithTiles to color the tiles
+    tSpPolysDF <- sp::SpatialPolygonsDataFrame(tSpPolys, data.frame(z=factor(i), name=nlTiles[i,"name"], row.names=i))
+
     #append the SPDF into a dataframe of SPDFs
     if (is.null(tSpPolysDFs))
       tSpPolysDFs <- tSpPolysDF
     else
-      tSpPolysDFs <- rbind(tSpPolysDFs, tSpPolysDF)
+      tSpPolysDFs <- sp::rbind.SpatialPolygonsDataFrame(tSpPolysDFs, tSpPolysDF)
   }
   return (tSpPolysDFs)
 }
 
-#' Plot a country polygon and the VIIRS tiles
+######################## plotCtryWithTiles ###################################
+
+#' Plot a country polygon against a background of the VIIRS tiles and world map
 #'
-#' Plot a country polygon as defined in the \code{"rworldmap"} package along with the \code{"nlTiles"}
-#'     for a visual inspection of the tiles required to process a country's nightlight data
+#' Plot a country polygon as defined in the \pkg{rworldmap} package along with the VIIRS nightlight tiles for a visual inspection of the tiles required for download in order to process a country's nightlight data.
+#' 
+#' It utilizes \code{rworldmap::rwmgetISO3} to resolve country codes as well as names
 #'
-#' @param idx either the index of the country polygon in \code{"rworldmap::getMap()"} or the 3-letter 
-#' ISO3 country code
+#' @param idx character or integer either the index of the country polygon in \code{rworldmap::getMap()} or the 3-letter ISO3 country code e.g. "KEN" or a common name of the country e.g. "Kenya" as found valid by \code{rworldmap::rwmgetISO3()}
 #'
 #' @return None
 #'
 #' @examples
 #' plotCtryWithTiles("KEN")
-#' 
-#'     which is identical to
-#' 
+#'
 #' plotCtryWithTiles(85)
+#' 
+#' plotCtryWithTiles("85")
 #'
 #' @export
 plotCtryWithTiles <- function(idx)
 {
+  if(missing(idx))
+    stop("You must supply a country code or index")
+  
+  if(!is.character(idx) && !is.numeric(idx))
+    stop("The parameter you supplied needs to be type numeric or character")
+  
   #if the map variable does not exist
   if(!exists("map"))
   {
     #get the map from the rworldmap package
     map <- rworldmap::getMap()
-    
+
     #some rworldmap polygons have problems. Rectify them to allow plotting without errors
-    map <- clgeo_Clean(map)
+    map <- cleangeo::clgeo_Clean(map)
   }
 
   #if the tiles spatial polygons dataframe does not exist create it
   if(!existsTSpPolysDFs())
     tSpPolysDFs <- createNlTilesSpPolysDF()
-    
+
   #if idx is numeric we assume it is the index of the country polygon in the map
   if (is.numeric(idx))
   {
@@ -248,78 +329,129 @@ plotCtryWithTiles <- function(idx)
       return("Index out of range")
     }
   }
-  else #try if it is a character ISO3 code
+  else if (is.character(idx)) #try if it is a character ISO3 code
   {
-    #valid index so get the corresponding ISO3 country code
-    ctryISO3 <- rwmGetISO3(idx)
-    
-    #print(ctryISO3)
-
-    #if ctryISO3 is empty then the country was not found
-    if (is.na(ctryISO3) || ctryISO3 == "")
-      return("Unknown country")
-    
-    #otherwise we have a valid country ISO3 code. get its index
-    idx <- which(as.character(map@data$ISO3) == ctryISO3)
+    if (suppressWarnings(!is.na(as.numeric(idx))))
+    {
+      idx <- as.numeric(idx)
+    }
+    else
+    {
+      #valid index so get the corresponding ISO3 country code
+      ctryISO3 <- rworldmap::rwmGetISO3(idx)
+  
+      #print(ctryISO3)
+  
+      #if ctryISO3 is empty then the country was not found
+      if (is.na(ctryISO3) || ctryISO3 == "")
+        return("Country code/name not found")
+  
+      #otherwise we have a valid country ISO3 code. get its index
+      idx <- which(as.character(map@data$ISO3) == ctryISO3)
+    }
+  }
+  else
+  {
+    return("invalid type")
   }
 
   #At this point we have a valid index number
-   
+
   #get the polygon that matches the index
   ctryPolys <- map@polygons[[idx]]
   
-  #create a SpatialPolygons object with a list of 1 list of Polygons
-  ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
-  
+  #get the name of the polygon
+  ctryPolyTitle <- paste0("VIIRS Nightlight Tiles Required for:\n", map@data$ADMIN[[idx]], " (", map@data$ISO3[[idx]], ")")
+
+  #create a SpatialPolygons object with the list of Polygons
+  ctrySpPolys <- sp::SpatialPolygons(Srl = list(ctryPolys))
+
   #set the coordinate reference system
-  crs(ctrySpPolys) <- CRS(wgs84)
-  
+  raster::projection(ctrySpPolys) <- sp::CRS(wgs84)
+
   #convert the spatial polygons to an SPsDF
   ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
-  
+
   #set the 4 margins to 2 inches from the border to avoid boundary errors
-  par(mar=rep(2,4))
-  
+  #graphics::par(mar=rep(2,4))
+
   #plot the tiles first
-  plot(tSpPolysDFs)
+  #sp::plot(tSpPolysDFs, main=ctryPolyName)
   
+
   #plot the country on the same plot and fill with blue
-  plot(ctrySpPolysDF, col="blue", add=TRUE)
+  #sp::plot(ctrySpPolysDF, col="blue", add=TRUE)
+  
+  #get the extents of the SpatialPolygonsDataFrame. Used to draw a bounding box around the plotted country. Especially helpful for very small countries
+  e <- raster::extent(ctrySpPolysDF)
+  
+  #draw back the boundaries by 10 units
+  e@xmin <- e@xmin - 10
+  e@xmax <- e@xmax + 10
+  e@ymin <- e@ymin - 10
+  e@ymax <- e@ymax + 10
+  
+  #convert the Extents object to a SpatialLines object for spplot to use
+  extents <- as(e, 'SpatialLines')
+  
+  #get a list of the intersecting tiles. Used to highlight tiles which intersect with plotted country
+  tilesIntersected <- tileName2Idx(getTilesCtryIntersect(map@data$ISO3[[idx]]))
+  
+  #create a list which serves as a subtitle showing the mapping of tile index to tile name
+  tileIdxNames <- paste(tSpPolysDFs@data$z, tSpPolysDFs@data$name, sep = "=")
+  
+  #plot the map
+  sp::spplot(tSpPolysDFs, #the tiles SPDF
+             zcol = "z", #the col in the tiles SPDF which determines their color
+             col.regions = as.vector(ifelse(1:nrow(tSpPolysDFs) %in% tilesIntersected, "lightblue", "transparent")), #colors of the tiles. intersected tiles are lightblue, otherwise transparent
+             colorkey = FALSE,
+             sp.layout = list(list(map, col='grey', fill='transparent', first=FALSE), #plot the world map from rworldmap
+                              list(ctrySpPolysDF, col='black', fill='blue', first=FALSE), #plot the selected country
+                              list('sp.lines', extents, col='green', lwd=2), #plot the bounding box
+                              list('sp.text', sp::coordinates(tSpPolysDFs), 1:nrow(tSpPolysDFs), col='black', cex=2) #label the tiles with their index numbers
+                              ),
+             main = ctryPolyTitle, #the main title
+             sub = tileIdxNames #the sub title 
+             )
   
   #ggplot(tSpPolysDFs, aes(x=long,y=lat))+geom_polygon(col="black", fill="white", alpha=0.5)#+geom_polygon(data=ctrySpPolysDF, alpha=0.5)
   #ggplot(ctrySpPolysDF, aes(x=long,y=lat, group=group))+geom_polygon(col="black", fill="white",alpha=0.5)
-  
+
   #a <- spplot(tSpPolysDFs, main=map@polygons[[idx]]@ID)
   #b <- spplot(ctrySpPolysDF)
-  
+
   #a+as.layer(b)
 }
+
+######################## mapAllCtryPolyToTiles ###################################
 
 #' Create a mapping of all countries and the tiles they intersect
 #'
 #'This is simply another name for mapCtryPolyToTiles with ctryCodes="all"
 #'
-#' @param omitCountries A character vector or list of countries to leave out. Default is \code{"none"}
+#' @param omitCountries A character vector or list of countries to leave out when processing. Default is \code{"none"}
 #'
 #' @return None
 #'
 #' @examples
 #' mapAllCtryPolyToTiles() no countries omitted
-#' 
+#'
 #' mapAllCtryPolyToTiles(omitCountries="none") no countries omitted
-#' 
+#'
 #' mapAllCtryPolyToTiles(omitCountries=c("error", "long")) will not omit countries that take long to process
 #'
 #' @export
-mapAllCtryPolyToTiles <- function(omitCountries="none")
+mapAllCtryPolyToTiles <- function(omitCountries=pkg_options("omitCountries"))
 {
   mapCtryPolyToTiles(ctryCodes="all", omitCountries)
 }
 
+######################## mapCtryPolyToTiles ###################################
+
 #' Create a mapping of all countries and the tiles they intersect
 #'
-#' Create a dataframe mapping each country in the rworldmap to the VIIRS tiles which they intersect with 
-#'     and thus need to be retrieved to process their nightlight imagery. Since some functions use this 
+#' Create a dataframe mapping each country in the rworldmap to the VIIRS tiles which they intersect with
+#'     and thus need to be retrieved to process their nightlight imagery. Since some functions use this
 #'     dataframe for long-term processing, omitCountries can eliminate countries that should be excluded
 #'     from the list hence from processing. Countries can be added in the omitCountries function.
 #'     Default is "none".
@@ -331,14 +463,14 @@ mapAllCtryPolyToTiles <- function(omitCountries="none")
 #'
 #' @examples
 #' mapCtryPolyToTiles() map all countries
-#' 
+#'
 #' mapCtryPolyToTiles(ctryCodes="all", omitCountries="none") map all countries, no countries omitted
-#' 
-#' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons 
+#'
+#' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons
 #' on GADM
 #'
 #' @export
-mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries="none")
+mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries=pkg_option("omitCountries"))
 {
   #if ctryCodes is "all" otherwise consider ctryCodes to be a list of countries
   if (length(ctryCodes) == 1 && tolower(ctryCodes) == "all")
@@ -351,51 +483,53 @@ mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries="none")
   if (!exists("map"))
   {
     map <- rworldmap::getMap()
-  
-    map <- clgeo_Clean(sp = map)
+
+    map <- cleangeo::clgeo_Clean(sp = map)
   }
-  
+
   #get the indices of the country polygons from the rworldmap
   ctryCodeIdx <- which(map@data$ISO3 %in% ctryCodes)
-  
+
   ctryCodeTiles <- NULL
-  
+
   #for each ctryCode index
   for (i in ctryCodeIdx)
   {
     #get the matching polygon
     ctryPolys <- map@polygons[[i]]
-    
+
     #create a SpatialPolygons object with a list of 1 list of Polygons
-    ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
-    
+    ctrySpPolys <- sp::SpatialPolygons(Srl = list(ctryPolys))
+
     #set the CRS
-    crs(ctrySpPolys) <- CRS(wgs84)
-    
+    raster::projection(ctrySpPolys) <- sp::CRS(wgs84)
+
     #convert the SpatialPolygons to a SpatialPolygonsDataFrame
     ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
-    
+
     #find the tiles the SPDF intersects with and add to the list of tiles
     ctryCodeTiles <- rbind(ctryCodeTiles, list(tilesPolygonIntersect(ctrySpPolys)))
   }
 
   #combine the ctryCodes and intersecting tile columns into a dataframe
   ctryCodeTiles <- as.data.frame(cbind(code = as.character(ctryCodes), tiles = ctryCodeTiles))
-  
+
   #name the columns
   names(ctryCodeTiles) <- c("code", "tiles")
-  
+
   #convert the code column to character since it is picked as factor
   ctryCodeTiles$code <- as.character(ctryCodeTiles$code)
 
-  #return the data frame  
+  #return the data frame
   return(ctryCodeTiles)
 }
 
+######################## getTilesCtryIntersect ###################################
+
 #' Get a list of tiles that a country polygon intersects with
 #'
-#' Create a dataframe mapping each country in the rworldmap to the VIIRS tiles which they intersect with 
-#'     and thus need to be retrieved to process their nightlight imagery. Since some functions use this 
+#' Create a dataframe mapping each country in the rworldmap to the VIIRS tiles which they intersect with
+#'     and thus need to be retrieved to process their nightlight imagery. Since some functions use this
 #'     dataframe for long-term processing, omitCountries can eliminate countries that should be excluded
 #'     from the list hence from processing. Countries can be added in the omitCountries function.
 #'     Default is "none".
@@ -406,44 +540,45 @@ mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries="none")
 #'
 #' @examples
 #' mapCtryPolyToTiles() map all countries
-#' 
+#'
 #' mapCtryPolyToTiles(ctryCodes="all", omitCountries="none") map all countries, no countries omitted
-#' 
-#' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons 
+#'
+#' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons
 #' on GADM
 #'
 #' @export
 getTilesCtryIntersect <- function(ctryCode)
 {
-  ctryISO3 <- rwmGetISO3(ctryCode)
-  
+  ctryISO3 <- rworldmap::rwmGetISO3(ctryCode)
+
   #print(ctryISO3)
-  
+
   if (is.na(ctryISO3) || ctryISO3 == "")
     return("Unknown country")
-  
+
   idx <- which(map@data$ISO3 == ctryISO3)
-  
+
   ctryCodeTiles <- NULL
-  
+
   ctryPolys <- map@polygons[[idx]]
-  
+
   #create a SpatialPolygons object with a list of 1 list of Polygons
-  ctrySpPolys <- SpatialPolygons(Srl = list(ctryPolys))
-  
-  crs(ctrySpPolys) <- CRS(wgs84)
-  
+  ctrySpPolys <- sp::SpatialPolygons(Srl = list(ctryPolys))
+
+  raster::projection(ctrySpPolys) <- sp::CRS(wgs84)
+
   ctrySpPolysDF <- as(ctrySpPolys, "SpatialPolygonsDataFrame")
-  
+
   ctryCodeTiles <- tilesPolygonIntersect(ctrySpPolys)
 
-  #Plot for debug  
+  #Plot for debug
   #plot(tSpPolysDFs, add=TRUE)
   #plot(ctrySpPolysDF, add=TRUE)
-  
+
   return (ctryCodeTiles)
 }
 
+######################## tileName2Idx ###################################
 
 #' Get the index of a tile given its name
 #'
@@ -461,11 +596,11 @@ tileName2Idx <- function(tileName)
 {
   if (missing(tileName))
     stop("Required parameter tileName")
-  
+
   if (!existsNlTiles())
     nlTiles <- getNlTiles()
-  
-  return (which(nlTiles$name == tileName))
+
+  return (which(nlTiles$name %in% tileName))
 }
 
 #' Get the name of a tile given its index
@@ -484,10 +619,12 @@ tileIdx2Name <- function(tileNum)
 {
   if (!existsNlTiles())
     nlTiles <- getNlTiles()
-  
-  return (nlTiles[tileNum, "name"])
+
+  #return (nlTiles[tileNum, "name"])
+  return(nlTiles[which(tileNum %in% nlTiles$id), "name"])
 }
 
+######################## tilesPolygonIntersect ###################################
 
 #' Get the list of VIIRS tiles that a polygon intersects with
 #'
@@ -509,30 +646,32 @@ tilesPolygonIntersect <- function(shp_polygon)
   #that it intersects with
   #Input: a Spatial Polygon e.g. from a loaded shapefile
   #Output: a character vector of tile names as given in the nlTiles dataframe
-  
+
   if (!existsTSpPolysDFs())
   {
     tSpPolysDFs <- createNlTilesSpPolysDF()
   }
-  
+
   if (!existsNlTiles())
     nlTiles <- getNlTiles()
-  
-  projection(shp_polygon) <- CRS(wgs84)
-  
+
+  raster::projection(shp_polygon) <- sp::CRS(wgs84)
+
   #init list to hold tile indices
   tileIdx <- NULL
-  
+
   #loop through the 6 tile rows in our SpatialPolygonsDataFrame
   for (i in 1:nrow(tSpPolysDFs))
   {
     #check whether the polygon intersects with the current tile
-    tileIdx[i] <- gIntersects(tSpPolysDFs[i,], shp_polygon)
+    tileIdx[i] <- rgeos::gIntersects(tSpPolysDFs[i,], shp_polygon)
   }
 
   #return a list of tiles that intersected with the SpatialPolygon
   return (nlTiles[tileIdx, "name"])
 }
+
+######################## getNtLts ###################################
 
 #' Get the list of VIIRS tiles that a polygon intersects with
 #'
@@ -552,24 +691,26 @@ getNtLts <- function(inputYear)
 {
   #dmsp/ols data from 1992-2013
   #snpp/viirs data from 2014 - present
-  
+
   if (inputYear < 1992 || inputYear > year(now()))
     return ("Invalid year")
-  
+
   if (inputYear < 2014)
     print("Downloading from DMSP/OLS")
   else
     print("Downloading from SNPP/VIIRS")
 }
 
+######################## getNtLtsUrlViirs ###################################
+
 #' Function to return the url of the VIIRS tile to download
 #'
 #' Function to return the url of the VIIRS tile to download given the year, month, and nlTile index
 #'
 #' @param inYear
-#' 
+#'
 #' @param inMonth character month in MM format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param inTile The integer index of the tile to download as given by getNlTiles()
 #'
 #' @return Character string Url of the VIIRS tile file
@@ -582,42 +723,42 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
 {
   if (!existsNlTiles())
     nlTiles <- getNlTiles()
-  
+
   inYear <- as.character(inYear)
-   
+
   nMonth <- as.character(inMonth)
 
   #nlTile is a global list
-  
-  #the page that lists all available nightlight files
-  ntLtsPageHtml <- "https://www.ngdc.noaa.gov/eog/viirs/download_mon_mos_iframe.html"
-  
+
+  #the page that lists all available nightlight files NOTE: URL CHANGE from "https://www.ngdc.noaa.gov/eog/viirs/download_mon_mos_iframe.html"
+  ntLtsPageHtml <- "https://www.ngdc.noaa.gov/eog/viirs/download_dnb_composites_iframe.html"
+
   #the local name of the file once downloaded
   ntLtsPageLocalName <- "ntltspageviirs.html"
 
   #if the file does not exist or is older than a week download it afresh
   #not working. download.file does not seem to update mtime
-  if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))) || file.size(ntLtsPageLocalName) == 0)
+  if (!file.exists(ntLtsPageLocalName) || (lubridate::date(lubridate::now()) - lubridate::date(file.mtime(ntLtsPageLocalName)) > lubridate::as.difftime(lubridate::period("1 day"))) || file.size(ntLtsPageLocalName) == 0)
   {
-    download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget", extra = "  -N --timestamping --no-use-server-timestamps")
+    utils::download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget", extra = "  -N --timestamping --no-use-server-timestamps")
   }
   #else
   #  print(paste0(ntLtsPageHtml, " already downloaded"))
-  
+
   #read in the html page
   ntLtsPage <- readr::read_lines(ntLtsPageLocalName)
-  
+
   #search for a line containing the patterns that make the files unique i.e.
   #1. SVDNB_npp_20121001 - year+month+01
   #2. vcmcfg - for file with intensity as opposed to cloud-free counts (vcmslcfg)
   #sample url: https://data.ngdc.noaa.gov/instruments/remote-sensing/passive/spectrometers-radiometers/imaging/viirs/dnb_composites/v10//201210/vcmcfg/SVDNB_npp_20121001-20121031_75N180W_vcmcfg_v10_c201602051401.tgz
-  
+
   #create the pattern
   ntLtsPageRgxp <- paste0("SVDNB_npp_", inYear, inMonth, "01.*", nlTiles[inTile,"name"], ".*vcmcfg")
-  
+
   #search for the pattern in the page
   ntLtsPageHtml <- ntLtsPage[grep(pattern = ntLtsPageRgxp, x=ntLtsPage)]
-  
+
   #split the output on quotes since this url is of the form ...<a href="URL"download> ...
   #the url is in the second position
   ntLtsPageUrl <- unlist(strsplit(ntLtsPageHtml, '"'))[2]
@@ -628,18 +769,20 @@ getNtLtsUrlViirs <- function(inYear, inMonth, inTile)
   #ntLtsPageUrl <- paste0("http://localhost/", fname)
   #
   #****DELETE WHEN DONE****
-  
+
   return (ntLtsPageUrl)
 }
+
+######################## validNlYearNum ###################################
 
 #' Check if a year is valid for a given nightlight type
 #'
 #' Check if a year is valid for a given nightlight type
 #'
 #' @param year
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -650,17 +793,17 @@ validNlYearNum <- function(yearNum, nlType)
 {
   if (missing(yearNum))
     stop("Missing parameter yearNum")
-  
+
   if (missing(nlType) || (nlType != "OLS" && nlType != "VIIRS"))
     stop("Missing or invalid required parameter nlType")
-  
+
   yearNum <- as.character(yearNum)
-  
+
   if (class(yearNum) != "character" || yearNum =="" || length(grep("[^[:digit:]]", yearNum) > 0))
     return(FALSE)
-  
+
   nlY <- as.numeric(yearNum)
-  
+
   if (nlType == "OLS")
   {
     if (nlY > 1994 && nlY < 2013)
@@ -680,15 +823,17 @@ validNlYearNum <- function(yearNum, nlType)
     return (FALSE)
 }
 
+######################## validNlMonthNum ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -697,10 +842,10 @@ validNlYearNum <- function(yearNum, nlType)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 validNlMonthNum <- function(monthNum, nlType="VIIRS")
 {
@@ -712,28 +857,69 @@ validNlMonthNum <- function(monthNum, nlType="VIIRS")
 
   if (nlType!="VIIRS")
     stop("nlMonth only valid for nlType=\"VIIRS\"")
-    
+
   if (class(monthNum) != "character" || monthNum =="" || length(grep("[^[:digit:]]", monthNum) > 0))
     return(FALSE)
- 
+
   nlM <- as.numeric(monthNum)
-  
+
   if (nlM >= 1 && nlM <= 12)
     return(TRUE)
   else
     return(FALSE)
 }
 
+######################## validNlYearMonthVIIRS ###################################
+
+#' Check if a VIIRS yearmonth is valid
+#'
+#' Check if a VIIRS yearmonth is valid Note this function is only valid for the "VIIRS" nightlight type
+#'
+#' @param nlYearMonth the yearmonth in "YYYYMM" format e.g. "201210", "201401"
+#'
+#' @return TRUE/FALSE
+#'
+#' @examples
+#' validNlYearMonthVIIRS("201512")
+#'  returns TRUE
+#'
+#' validNlYearMonthVIIRS("201513")
+#'  returns FALSE
+#'
+#' validNlYearMonthVIIRS("201201")
+#'  returns FALSE #VIIRS starts in "201204"
+#'
+#' @export
+validNlYearMonthVIIRS <- function(nlYearMonth)
+{
+  if (missing(nlYearMonth))
+    stop("Missing required parameter nlYearMonth")
+  
+  nlYearMonth <- as.character(nlYearMonth)
+  
+  if (class(nlYearMonth) != "character" || nlYearMonth =="" || length(grep("[^[:digit:]]", nlYearMonth) > 0))
+    return(FALSE)
+  
+  nlY <- as.numeric(substr(nlYearMonth, 1, 4))
+  nlM <- as.numeric(substr(nlYearMonth, 5, 6))
+  
+  if (validNlYearNum(yearNum = nlY, nlType = "VIIRS") && validNlMonthNum(monthNum = nlM, nlType = "VIIRS"))
+    return(TRUE)
+  else
+    return(FALSE)
+}
+
+######################## validNlTileNum ###################################
 
 #' Check if a tile index number is valid for a given nightlight type
 #'
-#' Check if a tile number is valid for a given nightlight type. Note tile num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a tile number is valid for a given nightlight type. Note tile num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param nlTileNum the index of the tile
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -742,73 +928,75 @@ validNlMonthNum <- function(monthNum, nlType="VIIRS")
 #'
 #' validTileNum("9","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("2","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 validNlTileNum <- function(nlTileNum, nlType)
 {
   nlTileNum <- as.character(nlTileNum)
-  
+
   if (missing(nlTileNum))
     stop("Missing parameter nlTileNum")
-  
+
   if (class(nlTileNum) != "character" || nlTileNum =="" || length(grep("[^[:digit:]]", nlTileNum) > 0))
     return(FALSE)
-  
+
   if(!exists("nlTiles"))
     nlTiles <- getNlTiles()
-  
+
   nlT <- as.numeric(nlTileNum)
-  
+
   if (nlT >= 1 && nlT <= length(nlTiles))
     return(TRUE)
   else
     return(FALSE)
 }
 
+######################## getNtLtsZipLclNameVIIRS ###################################
+
 #' Constructs the filename used to save/access the downloaded VIIRS .tgz file
 #'
 #' Constructs the filename used to save/access the downloaded VIIRS .tgz file
 #'
 #' @param nlYear the year in which the tile was created
-#' 
+#'
 #' @param nlMonth the month in which the tile was created
-#' 
+#'
 #' @param tileNum the index of the tile as given in nlTileIndex
 #'
 #' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
-#'   
+#'
 #' @return a character vector filename of the .tgz VIIRS tile
 #'
 #' @examples
 #' getNtLtsZipLclNameVIIRS("2014", "01", "1")
 #'  returns "./tiles/viirs_2014_01_75N180W.tgz"
-#'  
+#'
 #' @export
-getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
+getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("dirRasterVIIRS"))
 {
   nlType <- "VIIRS"
-  
+
   if (missing(nlYear) || !validNlYearNum(nlYear, nlType))
     stop("Missing or invalid required parameter nlYear")
-  
+
   if (missing(nlMonth) || !validNlMonthNum(nlMonth))
     stop("Missing or invalid required parameter nlMonth")
-  
+
   if (missing(tileNum) || !validNlTileNum(tileNum))
     stop("Missing or invalid required parameter tileNum")
 
   if (missing(dir) && !dir.exists(dir))
   {
     message("Invalid directory ", dir ,". Using default directory \"", getwd(), "/tiles\"")
-    
+
     #TODO: this is not correct! Not the right place to create the directory!
     if (!dir.exists(dir))
     {
       message("creating raster tiles directory")
-      
+
       dir.create("tiles")
     }
   }
@@ -818,18 +1006,20 @@ getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS
   return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tgz"))
 }
 
+######################## getNtLtsTifLclNameVIIRS ###################################
+
 #' Constructs the filename used to save/access the decompressed VIIRS .tif file
 #'
 #' Constructs the filename used to save/access the decompressed VIIRS .tif file
 #'
 #' @param nlYear the year in which the tile was created
-#' 
+#'
 #' @param nlMonth the month in which the tile was created
-#' 
+#'
 #' @param tileNum the index of the tile as given in nlTileIndex
 #'
 #' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
-#'   
+#'
 #' @return a character vector filename of the .tif VIIRS tile
 #'
 #' @examples
@@ -837,16 +1027,16 @@ getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS
 #' getNtLtsTifLclNameVIIRS("2014", "01", "1")
 #'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
-#'  
+#'
 #' @export
-getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS)
+getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("dirRasterVIIRS"))
 {
   if (missing(nlYear))
     stop("Missing nlYear")
-  
+
   if (missing(nlMonth))
     stop("missing nlMonth")
-  
+
   if (missing(tileNum))
     stop("Missing tileNum")
 
@@ -858,50 +1048,52 @@ getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=dirRasterVIIRS
     if (!dir.exists(dir))
     {
       message("creating raster tiles directory")
-      
+
       dir.create("tiles")
     }
   }
-  
+
   #TODO: create function to return the filename
   #TODO: rename this function since it returns a path not a filename
   return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tif"))
 }
 
+######################## getNtLtsViirs ###################################
+
 #' Download VIIRS nightlight tile
 #'
 #' Download VIIRS nightlight tile
 #'
-#' @param nlYear the year in "YYYY"/"%Y" format e.g. "2012"
+#' @param nlYear the year in "YYYY" format e.g. "2012"
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param tileNum the index of the tile as given by getNlTiles()
-#' 
+#'
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
 #' if(getNtLtsViirs("2012", "05", "1"))
 #'   print("download successful")
-#'  
+#'
 #' @export
 getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
 {
   nlType <- "VIIRS"
-  
+
   rsltDnld <- NA
-  
+
   ntLtsZipLocalNameVIIRS <- getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileNum)
   ntLtsTifLocalNameVIIRS <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)
-  
+
   #if (!file.exists(ntLtsZipLocalNameVIIRS) && !file.exists(ntLtsTifLocalNameVIIRS))
   if (!file.exists(ntLtsTifLocalNameVIIRS))
   {
     ntLtsFileUrl <- getNtLtsUrlViirs(nlYear, nlMonth, tileNum)
-    
+
     if (!(downloadMethod %in% c("wget", "aria")))
       downloadMethod <- "wget"
-    
+
     if (downloadMethod == "wget")
       rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalNameVIIRS, mode = "wb", method = "wget", extra = "-c")
     else if (downloadMethod == "aria")
@@ -912,37 +1104,37 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
     #if the file is found we can return positive? Probably not unless there's an overwrite option
     #for our purposes return true
     print("File exists, set Overwrite = TRUE to overwrite")
-    
+
     rsltDnld <- 0
   }
-  
+
   if (rsltDnld == 0)
   {
     message("Extracting ", ntLtsZipLocalNameVIIRS, " ", base::date())
-    
+
     if (!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
     {
       message("Getting list of files in ", ntLtsZipLocalNameVIIRS, " ", base::date())
-      
-      tgzFileList <- untar(ntLtsZipLocalNameVIIRS, list = TRUE)
+
+      tgzFileList <- utils::untar(ntLtsZipLocalNameVIIRS, list = TRUE)
       #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
-      
+
       if (is.null(tgzFileList))
       {
         message("Error extracting file list. ")
-        
+
         return (-1)
       }
-      
+
       tgzAvgRadFilename <- tgzFileList[grep("svdnb.*.avg_rade9.tif$",tgzFileList, ignore.case = T)]
-      
+
       message("Decompressing ", tgzAvgRadFilename, " ", base::date())
-      
+
       if(!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
       {
-        untar(ntLtsZipLocalNameVIIRS, files = tgzAvgRadFilename, exdir = dirRasterVIIRS)
-      
-        file.rename(paste0(dirRasterVIIRS,"/",tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
+        utils::untar(ntLtsZipLocalNameVIIRS, files = tgzAvgRadFilename, exdir = pkg_options("dirRasterVIIRS"))
+
+        file.rename(paste0(pkg_options("dirRasterVIIRS"),"/",tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
 
         file.remove(ntLtsZipLocalNameVIIRS)
       }
@@ -952,36 +1144,32 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
       message("TIF file found")
     }
   }
-  
+
   return (rsltDnld == 0)
 }
 
+######################## masq_viirs ###################################
 
-#' Mask 
+#' extract data from one polygon in a multipolygon
 #'
-#' Download VIIRS nightlight tile
+#' extract data from a polygon in a multipolygon. Modified from \url{https://commercedataservice.github.io/tutorial_viirs_part1/}
 #'
 #' @param shp the country Polygon layer as SpatialPolygon
 #'
 #' @param rast the clipped country raster
-#' 
+#'
 #' @param i the index of the polygon in the country polygon layer (shp)
-#' 
+#'
 #' @return numeric vector of radiances
 #'
-#' @example
-#' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN", 1))
-#' ctryRaster <- raster(getCtryRasterOutputFname("KEN", "201204"))
-#' temp <- NULL
-#' KenAdm1Sum <- NULL
-#' for (i in 1:5)#length(ctryPoly@polygons))
-#' {
-#'  temp$name <- as.character(ctryPoly@data$NAME_1[i])
-#'  temp$sum <- sum(masq_viirs(ctryPoly, ctryRaster, i), na.rm=T)
-#'  
-#'  KenAdm1Sum <- rbind(KenAdm1Sum)
-#' }
-#'  
+#' @examples
+#' ctryPoly <- rgdal::readOGR('path/to/polygon.shp')
+#' 
+#' ctryRaster <- raster::raster('path/to/raster.tif')
+#' 
+#' #get the sum of nightlight pixels in the first polygon in a multipolygon
+#' sumPolygon1 <- sum(masq_viirs(ctryPoly, ctryRaster, 1), na.rm=T)
+#'
 #' @export
 masq_viirs <- function(shp, rast, i)
 {
@@ -989,39 +1177,39 @@ masq_viirs <- function(shp, rast, i)
   #slightly modified to use faster masking method by converting the raster to vector
   #Extract one polygon based on index value i
   polygon <- shp[i,] #extract one polygon
-  
-  extent <- extent(polygon) #extract the polygon extent 
-  
+
+  extent <- raster::extent(polygon) #extract the polygon extent
+
   #Raster extract
-  outer <- crop(rast, extent) #extract raster by polygon extent
+  outer <- raster::crop(rast, extent) #extract raster by polygon extent
 
   #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
-  
-  inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
-  
+
+  inner <- raster::rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
+
   #Convert cropped raster into a vector
   #Specify coordinates
   #coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
   #                      seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
-  
+
   #Convert raster into vector
   data <- as.vector(inner)
-  
-  ##THIS SECTION NEEDS WORK. confirm error and NA values and handling of the same
-  
+
   #data <- data[!is.na(data)] #keep non-NA values only ... shall this affect mask values?
   #data[is.na(data)] <- 0
-  data[data < 0] <- NA #any negative values are either recording problems or error values as per: ... Negative values would distort most calculations. 
-  
-  return(data) 
+  data[data < 0] <- NA #any negative values are either recording problems or error values as per: ... Negative values would distort most calculations.
+
+  return(data)
 }
+
+######################## getNtLtsUrlOls ###################################
 
 #' Function to return the url of the OLS tile to download
 #'
 #' Function to return the url of the OLS tile to download given the year, month, and nlTile index
 #'
 #' @param inYear
-#' 
+#'
 #' @return Character string Url of the VIIRS tile file
 #'
 #' @examples
@@ -1031,68 +1219,70 @@ masq_viirs <- function(shp, rast, i)
 getNtLtsUrlOls <- function(inYear, inTile)
 {
   inYear <- as.character(inYear)
-  
+
   #Function to return the url of the file to download given the year, month, and nlTile index
   #nlTile is a global list
-  
+
   ntLtsBaseUrl <- "https://www.ngdc.noaa.gov/"
-  
+
   #the page that lists all available nightlight files
   ntLtsPageHtml <- "https://www.ngdc.noaa.gov/eog/dmsp/downloadV4composites.html"
-  
+
   #the local name of the file once downloaded
   ntLtsPageLocalName <- "ntltspageols.html"
-  
+
   #if the file does not exist or is older than a week download it afresh
   #not working. download.file does not seem to update mtime
-  if (!file.exists(ntLtsPageLocalName) || (date(now()) - date(file.mtime(ntLtsPageLocalName)) > as.difftime(period("1 day"))))
+  if (!file.exists(ntLtsPageLocalName) || (lubridate::date(now()) - lubridate::date(file.mtime(ntLtsPageLocalName)) > lubridate::as.difftime(period("1 day"))))
   {
     download.file(url = ntLtsPageHtml, destfile = ntLtsPageLocalName, method = "wget", extra = "-N")
   }
   #else
   #  print(paste0(ntLtsPageHtml, " already downloaded"))
-  
+
   #read in the html page
   ntLtsPage <- readr::read_lines(ntLtsPageLocalName)
-  
+
   #search for a line containing the patterns that make the files unique i.e.
   #1. SVDNB_npp_20121001 - year+month+01
   #2. vcmcfg - for file with intensity as opposed to cloud-free counts (vcmslcfg)
   #sample url: https://data.ngdc.noaa.gov/instruments/remote-sensing/passive/spectrometers-radiometers/imaging/viirs/dnb_composites/v10//201210/vcmcfg/SVDNB_npp_20121001-20121031_75N180W_vcmcfg_v10_c201602051401.tgz
-  
+
   #create the pattern
   ntLtsPageRgxp <- paste0("F.*.", inYear,".*\\.tar")
-  
+
   #search for the pattern in the page
   ntLtsPageHtml <- ntLtsPage[grep(pattern = ntLtsPageRgxp, x=ntLtsPage)]
-  
+
   #split the output on quotes since this url is of the form ...<a href="URL"download> ...
   #the url is in the second position
   ntLtsPageUrl <- unlist(strsplit(ntLtsPageHtml, '"'))
-  
+
   ntLtsPageUrl <- ntLtsPageUrl[grep("v4composite", ntLtsPageUrl)]
-  
+
   ntLtsPageUrl <- unlist(lapply(ntLtsPageUrl, FUN=function(x) paste0(ntLtsBaseUrl, x)))
-  
+
   #****NOTE: temp for testing using local download****
   #
   #fname <- stringr::str_extract(ntLtsPageUrl, "SVDNB.*.tgz")
   #ntLtsPageUrl <- paste0("http://localhost/", fname)
   #
   #****DELETE WHEN DONE****
-  
+
   return (ntLtsPageUrl)
 }
 
+######################## getNtLtsZipLclNameOLS ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -1101,29 +1291,30 @@ getNtLtsUrlOls <- function(inYear, inTile)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getNtLtsZipLclNameOLS <- function(nlYear, tileNum)
 {
-  return (paste0(dirRasterOLS, "/ols_", nlYear, "_", tileNum, ".tgz"))
+  return (paste0(pkg_options("dirRasterOLS"), "/ols_", nlYear, "_", tileNum, ".tgz"))
 }
 
+######################## getNtLtsTifLclNameOLS ###################################
 
 #' Constructs the filename used to save/access the decompressed OLS .tif file
 #'
 #' Constructs the filename used to save/access the decompressed OLS .tif file
 #'
 #' @param nlYear the year in which the tile was created
-#' 
+#'
 #' @param nlMonth the month in which the tile was created
-#' 
+#'
 #' @param tileNum the index of the tile as given in nlTileIndex
 #'
 #' @param dir the directory storing the tiles. Defaults to the global variable dirRasterVIIRS
-#'   
+#'
 #' @return a character vector filename of the .tif VIIRS tile
 #'
 #' @examples
@@ -1131,40 +1322,40 @@ getNtLtsZipLclNameOLS <- function(nlYear, tileNum)
 #' getNtLtsTifLclNameOLS("2014", "01", "1")
 #'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
-#'  
+#'
 #' @export
 getNtLtsTifLclNameOLS <- function(nlYear, tileNum)
 {
-  return (paste0(dirRasterOLS, "/ols_", nlYear, "_", tileNum, ".tif"))
+  return (paste0(pkg_options("dirRasterOLS"), "/ols_", nlYear, "_", tileNum, ".tif"))
 }
+
+######################## getNtLtsOLS ###################################
 
 #' Download OLS nightlight tile in TIF format from NOAA compressed as .tgz
 #'
 #' Download OLS nightlight tile in TIF format from NOAA compressed as .tgz
 #'
-#' @param nlYear the year in "YYYY"/"%Y" format e.g. "2012"
-#' 
-#' @param dir 
+#' @param nlYear the year in "YYYY" format e.g. "2012"
 #'
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
 #' result <- getNtLtsViirs("2012", "05", "1")
-#' 
+#'
 #' if (result)
 #'   print("download successful")
-#'  
+#'
 #' @export
 getNtLtsOLS <- function(nlYear, tileNum)
 {
   rsltDnld <- NA
-  
+
   ntLtsZipLocalName <- getNtLtsZipLclNameOLS(nlYear, tileNum)
-  
+
   if (!file.exists(ntLtsZipLocalNameOLS))
   {
     ntLtsFileUrl <- getNtLtsUrlOLS(nlYear)
-    
+
     rsltDnld <- download.file(ntLtsFileUrl, ntLtsZipLocalName, mode = "wb", method = "wget", extra = "-c")
   }
   else
@@ -1172,37 +1363,37 @@ getNtLtsOLS <- function(nlYear, tileNum)
     #if the file is found we can return positive? Probably not unless there's an overwrite option
     #for our purposes return true
     print("File exists, set Overwrite = TRUE to overwrite")
-    
+
     rsltDnld <- 0
   }
-  
+
   if (rsltDnld == 0)
   {
     message("Extracting ", ntLtsZipLocalName, " ", base::date())
-    
+
     if (!file.exists(getNtLtsTifLclNameOLS(nlYear, nlMonth, tileNum)))
     {
       message("Getting list of files in ", ntLtsZipLocalName, " ", base::date())
-      
-      tgzFileList <- untar(ntLtsZipLocalName, list = TRUE)
+
+      tgzFileList <- utils::untar(ntLtsZipLocalName, list = TRUE)
       #tgz_file_list <- stringr::str_replace(tgz_file_list,"./","")
-      
+
       if (is.null(tgzFileList))
       {
         message("Error extracting file list. ")
-        
+
         return (-1)
       }
-      
+
       tgzAvgRadFilename <- tgzFileList[grep("svdnb.*.avg_rade9.tif$",tgzFileList, ignore.case = T)]
-      
+
       message("Decompressing ", tgzAvgRadFilename, " ", base::date())
-      
+
       if(!file.exists(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum)))
       {
-        untar(ntLtsZipLocalName, files = tgzAvgRadFilename, exdir = dirRasterOLS)
-        
-        file.rename(paste0(dirRasterOLS,"/",tgzAvgRadFilename), getNtLtsTifLclNameOLS(nlYear, tileNum))
+        utils::untar(ntLtsZipLocalName, files = tgzAvgRadFilename, exdir = pkg_options("dirRasterOLS"))
+
+        file.rename(paste0(pkg_options("dirRasterOLS"),"/",tgzAvgRadFilename), getNtLtsTifLclNameOLS(nlYear, tileNum))
       }
     }
     else
@@ -1210,23 +1401,25 @@ getNtLtsOLS <- function(nlYear, tileNum)
       message("TGZ file found")
     }
   }
-  
+
   return (rsltDnld == 0)
 }
 
-#' Mask 
+######################## masq_ols ###################################
+
+#' Mask
 #'
 #' Download VIIRS nightlight tile
 #'
 #' @param shp the country Polygon layer as SpatialPolygon
 #'
 #' @param rast the clipped country raster
-#' 
+#'
 #' @param i the index of the polygon in the country polygon layer (shp)
-#' 
+#'
 #' @return numeric vector of radiances
 #'
-#' @example
+#' @examples
 #' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN", 1))
 #' ctryRaster <- raster(getCtryRasterOutputFname("KEN", "1999"))
 #' temp <- NULL
@@ -1235,90 +1428,96 @@ getNtLtsOLS <- function(nlYear, tileNum)
 #' {
 #'  temp$name <- as.character(ctryPoly@data$NAME_1[i])
 #'  temp$sum <- sum(masq_ols(ctryPoly, ctryRaster, i), na.rm=T)
-#'  
+#'
 #'  KenAdm1Sum <- rbind(KenAdm1Sum)
 #' }
-#'  
+#'
 #' @export
 masq_ols <- function(shp, rast, i)
 {
   #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
   #Extract one polygon based on index value i
   polygon <- shp[i,] #extract one polygon
-  extent <- extent(polygon) #extract the polygon extent 
-  
+  extent <- raster::extent(polygon) #extract the polygon extent
+
   #Raster extract
-  outer <- crop(rast, extent) #extract raster by polygon extent
+  outer <- raster::crop(rast, extent) #extract raster by polygon extent
   #inner <- mask(outer,polygon) #keeps values from raster extract that are within polygon
-  inner <- rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
-  
+  inner <- raster::rasterize(polygon, outer, mask=TRUE) #crops to polygon edge & converts to raster
+
   #Convert cropped raster into a vector
   #Specify coordinates
   coords <- expand.grid(seq(extent@xmin,extent@xmax,(extent@xmax-extent@xmin)/(ncol(inner)-1)),
                         seq(extent@ymin,extent@ymax,(extent@ymax-extent@ymin)/(nrow(inner)-1)))
   #Convert raster into vector
   data <- as.vector(inner)
-  
+
   ##THIS SECTION NEEDS WORK. confirm error and NA values and handling of the same
   #keep non-NA values only?
   #data <- data[!is.na(data)]
-  
+
   #in DMSP-OLS 255 == NA
   data[which(data == 255)] <- NA
-  
+
   #non-negative values are errors replace with 0?
   data[data < 0] <- 0
-  
+
   return(data)
 }
+
+######################## ctryNameToCode ###################################
 
 #' Convert a country name to its ISO3 code
 #'
 #' Convert a country name to its ISO3 code. Exposes the rworldmap function rwmGetISO3(ctryName). See the examples
-#' 
+#'
 #' @param ctryCode
-#' 
+#'
 #' @return Character full country name
 #'
 #' @examples
 #' ctryNameToCode("kenya")
 #'   #returns "KEN"
-#'  
+#'
 #' ctryNameToCode("ken")
 #'   #returns "KEN"
-#'   
+#'
 #' @export
 ctryNameToCode <- function(ctryName)
 {
   return (rworldmap::rwmGetISO3(ctryName))
 }
 
+######################## ctryCodeToName ###################################
+
 #' Convert a country ISO3 code to the full name
 #'
 #' Convert a country ISO3 code to the full name. Exposes the rworldmap function isoToName(ctryCode)
-#' 
+#'
 #' @param ctryCode
-#' 
+#'
 #' @return Character full country name
 #'
 #' @examples
 #' ctryCodeToName("KEN")
-#'  
+#'
 #' @export
-ctryCodeToNAME <- function(ctryCode)
+ctryCodeToName <- function(ctryCode)
 {
   return(rworldmap::isoToName(ctryCode))
 }
 
+######################## ctryPolyLyrNames ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -1327,10 +1526,10 @@ ctryCodeToNAME <- function(ctryCode)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 ctryPolyLyrNames <- function (nLyrs)
 {
@@ -1338,21 +1537,23 @@ ctryPolyLyrNames <- function (nLyrs)
   #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
   #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
   nums <- c(paste(1:nLyrs,1:nLyrs))
-  
-  nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-  
+
+  nums <- utils::unlist(strsplit(paste(nums, collapse = " "), " "))
+
   return(paste(c("ID_", "NAME_"), nums, sep=""))
 }
 
+######################## ctryPolyAdmColNames ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -1361,10 +1562,10 @@ ctryPolyLyrNames <- function (nLyrs)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
 {
@@ -1372,21 +1573,23 @@ ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
   #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
   #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
   nums <- c(paste(1:nLyrs,1:nLyrs))
-  
+
   nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-  
+
   return(paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep=""))
 }
 
+######################## processNLCountryOls ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -1395,274 +1598,277 @@ ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 processNLCountryOls <- function(cntryCode, nlYear)
 {
   message("processNLCountryOLS: ")
-  
-  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
-  
-  ctryExtent <- extent(ctryPoly)
-  
-  projection(ctryPoly) <- CRS(wgs84)
-  
+
+  ctryPoly <- rgdal::readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+
+  ctryExtent <- raster::extent(ctryPoly)
+
+  raster::projection(ctryPoly) <- sp::CRS(wgs84)
+
   nlYear <- substr(nlYearMonth, 1, 4)
-  
+
   nlMonth <- substr(nlYearMonth, 5, 6)
-  
+
   if (existsCtryNlDataFile(ctryCode))
   {
-    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode),header = TRUE,sep = ",")
-    
+    ctryNlDataDF <- utils::read.csv(getCtryNlDataFnamePath(ctryCode),header = TRUE,sep = ",")
+
     existingDataCols <- names(ctryNlDataDF)
-    
+
     existingYears <- existingDataCols[grep("^NL_[:alphanum:]*", existingDataCols)]
-    
+
     existingYears <- stringr::str_replace(existingYears, "NL_OLS_", "")
-    
+
     if(nlYear %in% existingYears)
     {
       message("Data exists for ", ctryCode, " ", nlYear)
-      
+
       return(-1)
     }
   } else
   {
     #get the list of admin levels in the polygon shapefile
     ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
-   
+
     #add the area as reported by the polygon shapefile as a convenience
-    areas <- area(ctryPoly)
-    
+    areas <- raster::area(ctryPoly)
+
     if (length(ctryPolyAdmLevels) > 0)
     {
       #conver to lower case for consistency
       ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
-      
+
       #the number of admin levels
       nLyrs <- length(ctryPolyAdmLevels)
-      
+
       #the names of the layers which will become column names
       ctryPolyAdmCols <- ctryPolyLyrNames(nLyrs)
-  
+
       #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
-      ctryNlDataDF <- ctryPoly@data[,eval(ctryPolyAdmCols)]
-    
+      ctryNlDataDF <- ctryPoly@data[, eval(ctryPolyAdmCols)]
+
 
       #we add the country code to ensure even a renamed file is identifiable
       #repeat ctryCode for each row in the polygon. equiv of picking layer0
       ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
-      
+
       #combine the columns
       ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
-      
+
       ctryPolyColNames <- ctryPolyAdmColNames(ctryPolyAdmLevels, nLyrs)
-      
+
       #add the country_code and area columns to the dataframe
       ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
-      
+
       names(ctryNlDataDF) <- ctryPolyColNames
-      
+
     } else
     {
       ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
     }
   }
-  
+
   if(!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
   {
     message("Begin processing ", nlYearMonth, " ", base::date())
-    
+
     message("Reading in the rasters " , base::date())
-    
+
     tileList <- getCtryCodeTileList(ctryCode)
-    
+
     ctryRastCropped <- NULL
-    
+
     for (tile in tileList)
     {
       satYear <- substr(tar_fl,1,7)
-      
+
       message("Extracting ", tar_fl, " ", base::date())
-      
+
       message("Getting list of files in ", tar_fl, " ", base::date())
       #get a list of files in the tar archive
-      tar_file_list <- untar(tar_fl, list = TRUE)
-      
+      tar_file_list <- utils::untar(tar_fl, list = TRUE)
+
       #get the nightlight data filename
       #the nightlight data filename has the format "web.avg_vis.tif.gz"
       #    tgz_file <- tar_file_list[grep(".*web\\.avg_vis\\.tif\\.gz$",tar_file_list, ignore.case = T)]
       tgz_file <- tar_file_list[grep(".*stable_lights\\.avg_vis\\.tif\\.gz$",tar_file_list, ignore.case = T)]
-      
+
       #extract the nightlight data file
-      untar(tar_fl, tgz_file)
-      
+      utils::untar(tar_fl, tgz_file)
+
       #the tif has the same name as the compressed file without the .gz
-      tif_file <- str_replace(tgz_file, ".gz", "")
-      
+      tif_file <- stringr::str_replace(tgz_file, ".gz", "")
+
       message("Decompressing ", tgz_file, " ", base::date())
-      
+
       gunzip(tgz_file)
       #no need to delete the gz since gunzip deletes the compressed version
     }
-  
+
     #for()
     {
       message("Reading in the raster " , base::date())
-      rastGlobal <- raster(tif_file)
-      
-      projection(rastGlobal) <- CRS(wgs84)
-      
+      rastGlobal <- raster::raster(tif_file)
+
+      raster::projection(rastGlobal) <- sp::CRS(wgs84)
+
       message("Cropping the raster ", base::date())
-      ctryRast <- crop(rastGlobal, ctryPoly)
-      
+      ctryRast <- raster::crop(rastGlobal, ctryPoly)
+
       message("Releasing the raster variables")
       rm(rastGlobal)
-      
+
       message("Deleting the raster files ", base::date())
-      
+
       unlink(tif_file)
-      
+
       #merge rasters
     }
-    
+
     #write merged raster
   }
   else
   {
-    #read in the raster  
+    #read in the raster
   }
-    
+
   gc()
-  
+
   message("Masking the merged raster ", base::date())
   #rast_ke <- mask(rast_ke, ke_shp_ward)
-  rast_ke <- rasterize(ctryPoly, rast_ke, mask=TRUE) #crops to polygon edge & converts to raster
-  
+  rast_ke <- raster::rasterize(ctryPoly, rast_ke, mask=TRUE) #crops to polygon edge & converts to raster
+
   message("Writing the merged raster to disk ", base::date())
-  writeRaster(x = rast_ke, filename = paste0(dirRasterOutput, nlYear, ".tif"), overwrite=TRUE)
-  
-  registerDoParallel(cores=6)
-  
+  raster::writeRaster(x = rast_ke, filename = paste0(pkg_options("dirRasterOutput"), nlYear, ".tif"), overwrite=TRUE)
+
+  doParallel::registerDoParallel(cores=2)
+
   message("Begin extracting the data from the merged raster ", base::date())
-  sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
+  sumAvgRad <- foreach::foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar%
   {
     #message("Extracting data from polygon " , i, " ", base::date())
     dat <- masq(ctryPoly, rast_ke,i)
-    
+
     #message("Calculating the mean of polygon ", i, " ", base::date())
-    
+
     #calculate and return the sum of the mean of all the pixels
     data.frame(mean = sum(dat, na.rm=TRUE))
   }
-  
+
   #merge the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(extctryNlDract, sumAvgRad)
-  
+
   #name the new column with the yearmonth of the data
   names(extract)[ncol(extract)] <- paste0("NL_OLS_", nlYear)
-  
+
   message("DONE processing ", nlYear, " ", base::date())
 
   message("COMPLETE. Writing data to disk")
-  write.table(extract, getCtryNlDataFname(ctryCode), row.names= F, sep = ",")
-    
+  utils::write.table(extract, getCtryNlDataFname(ctryCode), row.names= F, sep = ",")
+
 }
+
 
 #' Initiates the country nightlight dataframe with the admin levels read from the polygon
 #'
 #' Initiates the country nightlight dataframe with the admin levels read from the polygon
 #'
 #' @param ctryCode the ISO3 code of the country
-#' 
+#'
 #' @return dataframe
 #'
 #' @examples
 #' initCtryNlData <- createCtryNlDataDF("KEN")
 #'  returns
-#'  
+#'
 #' @export
 createCtryNlDataDF <- function(ctryCode)
 {
-  ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
-  
-  ctryExtent <- extent(ctryPoly)
-  
-  projection(ctryPoly) <- CRS(wgs84)
-  
+  ctryPoly <- rgdal::readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+
+  ctryExtent <- raster::extent(ctryPoly)
+
+  raster::projection(ctryPoly) <- sp::CRS(wgs84)
+
   #get the list of admin levels in the polygon shapefile
   ctryPolyAdmLevels <- getCtryPolyAdmLevelNames(ctryCode)
-  
+
   #conver to lower case for consistency
   ctryPolyAdmLevels <- tolower(ctryPolyAdmLevels)
-  
+
   #add the area as reported by the polygon shapefile as a convenience
-  areas <- area(ctryPoly)
-  
+  areas <- raster::area(ctryPoly)
+
   if (length(ctryPolyAdmLevels) > 0)
   {
     #When a country does not have lower administrative levels
-    
+
     #the number of admin levels
     nLyrs <- length(ctryPolyAdmLevels)
-    
+
     #the repeat pattern required to create columns in the format 1,1,2,2,3,3 ...
     #for col names: admlevel1_id, admlevel1_name, ..., admleveN_id, admlevelN_name
     #and polygon data col names: ID_1, NAME_1, ..., ID_N, NAME_N
     #nums <- c(paste(1:nLyrs,1:nLyrs))
-    
+
     #nums <- unlist(strsplit(paste(nums, collapse = " "), " "))
-    
+
     #ctryPolyAdmCols <- paste(c("ID_", "NAME_"), nums, sep="")
-    
+
     ctryPolyAdmCols <- paste(c("NAME_"), 1:nLyrs, sep="")
-    
+
     #pull the ID_ and NAME_ cols from layer1 to lowest layer (layer0 has country code not req'd)
     ctryNlDataDF <- as.data.frame(ctryPoly@data[,eval(ctryPolyAdmCols)])
-    
+
     #add the area as reported by the polygon shapefile as a convenience
-    areas <- area(ctryPoly)
-    
+    areas <- raster::area(ctryPoly)
+
     #we add the country code to ensure even a renamed file is identifiable
     #repeat ctryCode for each row in the polygon. equiv of picking layer0
     ctryCodeCol <- rep(ctryCode, nrow(ctryNlDataDF))
-    
+
     #combine the columns
     ctryNlDataDF <- cbind(ctryCodeCol, ctryNlDataDF, areas)
-    
+
     #ctryPolyColNames <- paste(ctryPolyAdmLevels[nums, "name"], c("_id", "_name"), sep="")
     ctryPolyColNames <- ctryPolyAdmLevels
-    
+
     #add the country_code and area columns to the dataframe
     ctryPolyColNames <- c("country_code", ctryPolyColNames, "area_sq_km")
-    
+
     names(ctryNlDataDF) <- ctryPolyColNames
   } else
   {
     ctryNlDataDF <- data.frame("country_code"=ctryCode, "area_sq_km"=areas)
   }
-  
+
   return(ctryNlDataDF)
 }
 
+######################## processNLCountriesViirs ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' processNLCountriesViirs(ctryCodes, nlYearMonth)
-#'  
+#'
 #' @export
 processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
 {
@@ -1672,193 +1878,209 @@ processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
   }
 }
 
+######################## ctryShpLyrName2Num ###################################
+
 #' Get the integer number of the layer. topmost country layer=0
 #'
 #' Get the integer number of the layer. Is the last character in the name and is a digit. E.g. for the 3rd layer in Kenya shapefile polygon named "KEN_adm3" the layer number is "3"
-#' 
+#'
 #' @param layerName - the name of the polygon layer
-#' 
+#'
 #' @return Integer layer number
 #'
 #' @examples
 #' ctryShpLyrName2Num("KEN_adm1")
 #'   #returns 1
-#'  
+#'
 #' @export
 ctryShpLyrName2Num <- function(layerName)
 {
   return(as.numeric(gsub("[^[:digit:]]", "", layerName)))
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## processNLCountryVIIRS ###################################
+
+#' Processes nightlights for an individual country in a particular year month 
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' NOTE: \code{processNLCountryVIIRS()} should be called from the function \code{processNtLts()} which does all the preparation for processing. \code{processNtLts()} which can process multiple countries and time periods will download all the required tiles and polygons prior to calling \code{processNLCountryVIIRS()}. \code{processNLCountryVIIRS()} assumes that all inputs are available and will not attempt to download them.
+#' 
+#' Given a \code{countryCode}, \code{yearMonth} and preferred processing methods \code{cropMaskMethod} and \code{extractMethod}, this function will first check if the data already exists in the cache. First it will check if the data file exists and if it does not it will create a dataframe of the country data containing only the administrative properties and move to processing. If the data file exists it will check to see if the particular year month already exists. If it exists, it will exit with a message. If it does not exist, it will load the country data file and move on to processing.
+#' 
+#' Processing consists of:
+#' \enumerate{ 
+#'    \item Reading in the country polygon in ESRI Shapefile format
+#'    \item Reading in the tiles that the particular country intersects with and then clipping the tile(s) to the country boundary
+#'    \item Extract the data from the clipped raster and compute various statistics at the lowest admin level in the country. 
+#'    \item Finally, these stats are appended to the data frame and written to the data file.
+#' }
 #'
 #' @param ctryCode
-#' 
+#'
 #' @param nlYearMonth
-#' 
-#' @param cropMastMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to crop and mask
+#'
+#' @param cropMaskMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to crop and mask
 #'     the country rasters
-#' 
+#'     
+#' @param extractMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to crop and mask
+#'     the country rasters
+#'
 #' @return None
 #'
 #' @examples
-#' processNLCountryVIIRS() #
-#'  
-#' @export
+#' processNLCountryVIIRS(c("KEN"), c("201204"))
+#'
 processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
 {
   if(missing(ctryCode) || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
     stop("ctryCode missing")
-  
+
   if(missing(nlYearMonth) || class(nlYearMonth) != "character" || is.null(nlYearMonth) || nlYearMonth == "")
     stop("nlYearMonth missing")
-  
+
   if (missing(cropMaskMethod) || class(cropMaskMethod) != "character" || is.null(cropMaskMethod) || nlYearMonth == "")
     cropMaskMethod <- "rast"
-  
+
   message("processNLCountryVIIRS: ", ctryCode, " ", nlYearMonth)
-  
+
   nlYear <- substr(nlYearMonth, 1, 4)
-  
+
   nlMonth <- substr(nlYearMonth, 5, 6)
-  
+
   message("Check for existing data file")
-  
+
   if (existsCtryNlDataFile(ctryCode))
   {
     message("Data file found: ", getCtryNlDataFnamePath(ctryCode))
-    
+
     if(existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
     {
       message("Data exists for ", ctryCode, " ", nlYearMonth, ". Skipping")
-      
+
       return(-1)
     }
-    
+
     message("Load country data file")
-    ctryNlDataDF <- read.csv(getCtryNlDataFnamePath(ctryCode))
-      
+    ctryNlDataDF <- utils::read.csv(getCtryNlDataFnamePath(ctryCode))
+
     message("Load country polygon lowest admin level")
-    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
-    
-    ctryExtent <- extent(ctryPoly)
-    
-    projection(ctryPoly) <- CRS(wgs84)
-    
+    ctryPoly <- rgdal::readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+
+    ctryExtent <- raster::extent(ctryPoly)
+
+    raster::projection(ctryPoly) <- sp::CRS(wgs84)
+
   } else
   {
     message("Data file not found. Creating ...")
-    
+
     ctryNlDataDF <- createCtryNlDataDF(ctryCode)
-    
+
     message("Data file not found. Creating ... DONE")
 
     message("Load country polygon lowest admin level")
-    ctryPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
+
+    ctryPoly <- rgdal::readOGR(getPolyFnamePath(ctryCode), getCtryShpLowestLyrName(ctryCode))
   }
 
   if(!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
   {
     message("Begin processing ", nlYearMonth, " ", base::date())
-  
+
     message("Reading in the rasters " , base::date())
 
     tileList <- getCtryCodeTileList(ctryCode)
-    
+
     ctryRastCropped <- NULL
 
     for (tile in tileList)
     {
       rastFilename <- getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile))
-      
-      rastTile <- raster(rastFilename)
-      
-      projection(rastTile) <- CRS(wgs84)
-      
+
+      rastTile <- raster::raster(rastFilename)
+
+      raster::projection(rastTile) <- sp::CRS(wgs84)
+
       message("Cropping the rasters", base::date())
-      
+
       #extTempCrop <- crop(rastTile, ctryExtent)
-      
-      tempCrop <- crop(rastTile, ctryPoly)
-      
+
+      tempCrop <- raster::crop(rastTile, ctryPoly)
+
       if(is.null(ctryRastCropped))
       {
         ctryRastCropped <- tempCrop
-        
+
         #ctryExtCropped <- extTempCrop
       }
       else
       {
         ctryRastMerged <- ctryRastCropped
-        
+
         ctryRastCropped <- NULL
-        
-        ctryRastCropped <- merge(ctryRastMerged, tempCrop)
-        
+
+        ctryRastCropped <- raster::merge(ctryRastMerged, tempCrop)
+
         rm(ctryRastMerged)
-        
+
         #ctryExtMerged <- ctryExtCropped
-        
+
         #ctryExtCropped <- NULL
-        
+
         #ctryExtCropped <- merge(ctryExtMerged, tempCrop)
-        
+
       }
-      
+
       rm(tempCrop)
     }
-    
+
     rm(rastTile)
-    
+
     gc()
 
     message("Masking the merged raster ", base::date())
-    
+
     if (cropMaskMethod == "rast")
     {
-    
+
       #RASTERIZE
       message("Crop and mask using rasterize ", base::date())
-      ctryRastCropped <- rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
-      
+      ctryRastCropped <- raster::rasterize(ctryPoly, ctryRastCropped, mask=TRUE) #crops to polygon edge & converts to raster
+
       message("Writing the merged raster to disk ", base::date())
-      
-      writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
-      
+
+      raster::writeRaster(x = ctryRastCropped, filename = getCtryRasterOutputFname(ctryCode,nlYearMonth), overwrite=TRUE)
+
       message("Crop and mask using rasterize ... Done", base::date())
     }
     else if (cropMaskMethod == "gdal")
     {
       message("Crop and mask using gdalwarp ... ", base::date())
-      
+
       #GDALWARP
       rstTmp <- paste0(tempfile(), ".tif")
-  
+
       message("Writing merged raster to disk for gdal")
-      
-      writeRaster(ctryRastCropped, rstTmp)
-      
+
+      raster::writeRaster(ctryRastCropped, rstTmp)
+
       output_file_vrt <- paste0(ctryCode, "_", nlYearMonth, ".vrt")
-      
+
       if (file.exists(output_file_vrt))
         file.remove(output_file_vrt)
-      
+
       message("gdalwarp ",base::date())
-      
-      gdalwarp(srcfile=rstTmp, dstfile=output_file_vrt, s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wm=2048, wo="NUM_THREADS=ALL_CPUS")
-      
+
+      gdalUtils::gdalwarp(srcfile=rstTmp, dstfile=output_file_vrt, s_srs=wgs84, t_srs=wgs84, cutline=getPolyFnamePath(ctryCode), cl= getCtryShpLyrName(ctryCode,0), multi=TRUE, wm=2048, wo="NUM_THREADS=ALL_CPUS")
+
       message("gdal_translate ", base::date())
-      gdal_translate(co = "compress=LZW", src_dataset = output_file_vrt, dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
-      
+      gdalUtils::gdal_translate(co = "compress=LZW", src_dataset = output_file_vrt, dst_dataset = getCtryRasterOutputFname(ctryCode,nlYearMonth))
+
       message("Deleting the component rasters ", base::date())
-      
+
       file.remove(rstTmp)
       file.remove(output_file_vrt)
-      
-      ctryRastCropped <- raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
+
+      ctryRastCropped <- raster::raster(getCtryRasterOutputFname(ctryCode, nlYearMonth))
       #GDALWARP
       message("Crop and mask using gdalwarp ... DONE", base::date())
     }
@@ -1866,62 +2088,93 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
   else
   {
     rastFilename <- getCtryRasterOutputFname(ctryCode, nlYearMonth)
-    
-    ctryRastCropped <- raster(rastFilename)
-    
-    crs(ctryRastCropped) <- CRS(wgs84)
+
+    ctryRastCropped <- raster::raster(rastFilename)
+
+    raster::projection(ctryRastCropped) <- sp::CRS(wgs84)
   }
-  
+
   message("Create web version of raster", base::date())
-  
+
   #attempting to obtain QGIS display style grayscale stretch minmax of 2%-98% of values
   #message("calculating quantile 2 and 98 ", base::date())
   #system.time(qnts <- sapply(1:1000,FUN =  function(x) quantile(sampleRandom(ctryRastCropped,100), c(0.02,0.98)),simplify = T))
 
   #qnt2 <- mean(qnts[1,])
   #qnt98 <- mean(qnts[2,])
-  
+
   #cmd <- paste0("gdal_translate -co TILED=YES -co COMPRESS=JPEG -ot Byte -scale ", qnt2, " ", qnt98," 0 255 ", getCtryRasterOutputFname(ctryCode,nlYearMonth), " ", dirRasterWeb, "/", ctryCode, "_", nlYearMonth, "_JPEG.tif")
-  
+
   #message("Create web raster ", base::date())
   #system(cmd)
-  
+
   message("Begin extracting the data from the merged raster ", base::date())
-  
+
   if (extractMethod == "rast")
     sumAvgRad <- fnSumAvgRadRast(ctryPoly, ctryRastCropped)
   else if (extractMethod == "gdal")
     sumAvgRad <- fnSumAvgRadGdal(ctryCode, ctryPoly, nlYearMonth)
+
+  #insertNlDataCol(ctryNlDataDF, statType, ctryCode, nlYearMonth, nlType)
   
-  #merge the calculated means for the polygon as a new column
+  #append the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(ctryNlDataDF, sumAvgRad)
-  
-  #name the new column with the yearmonth of the data
-  names(ctryNlDataDF)[ncol(ctryNlDataDF)] <- paste0("NL_VIIRS_", nlYearMonth)
-  
+
+  #name the new column which is currently last with the yearmonth of the data
+  names(ctryNlDataDF)[ncol(ctryNlDataDF)] <- getCtryNlDataColName("sum", "VIIRS", nlYearMonth)
+
+  #re-arrange the columns
+  #read in all column names in the dataframe afresh
   cols <- names(ctryNlDataDF)
-  
+
+  #get only the nightlight data columns
   nlDataColIdx <- grep("^NL_", cols)
-  
+
   nlDataColNames <- cols[nlDataColIdx]
-  
+
+  #sort the column names ascending
   nlDataColNames <- nlDataColNames[order(nlDataColNames)]
-  
+
+  #combine the non-nightlight and the nightlight data columns
   newNlDataColNames <- c(cols[-nlDataColIdx], nlDataColNames)
-  
-  #rearrange NL columns
-  ctryNlDataDF <- ctryNlDataDF[,newNlDataColNames]
-  
+
+  #write back the dataframe with the new column order
+  ctryNlDataDF <- ctryNlDataDF[ ,newNlDataColNames]
+
   message("DONE processing ", ctryCode, " ", nlYearMonth, " ", base::date())
-  
+
   message("COMPLETE. Writing data to disk")
-  write.table(ctryNlDataDF, getCtryNlDataFnamePath(ctryCode), row.names= F, sep = ",")
-  
+
+  #Write the country data dataframe to disk
+  saveCtryNlData(ctryNlDataDF)
+
+  #release the cropped raster
   rm (ctryRastCropped)
-  
-  removeTmpFiles(h = 0)
+
+  #delete temporary raster files
+  raster::removeTmpFiles(h = 0)
 }
 
+######################## saveCtryNlData ###################################
+
+#' Save a data frame of a country's data to the appropriate location
+#'
+#' Saves the data frame created from processNlCountry* to the appropriate location. Note: This function does not do any error checking and will overwrite existing data. Use with caution.
+#'
+#' @param ctryNlDataDF dataframe with the country data to save
+#'
+#' @return Character full path to the cropped VIIRS country raster for a country and a given year and month
+#'
+#' @examples
+#' 
+#' saveCtryNlData(ctryNlDataDF)
+#'
+saveCtryNlData <- function(ctryNlDataDF)
+{
+  utils::write.table(ctryNlDataDF, getCtryNlDataFnamePath(ctryCode), row.names= F, sep = ",")
+}
+
+######################## getCtryRasterOutputFname ###################################
 
 #' Get the full path to the file where the cropped VIIRS country raster is stored.
 #'
@@ -1929,102 +2182,233 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
 #'     when processing the country before extracting the data. It can be used to re-process a country much faster
 #'
 #' @param ctryCode
-#' 
+#'
 #' @param nlYearMonth the year and month
-#' 
+#'
 #' @return Character full path to the cropped VIIRS country raster for a country and a given year and month
 #'
 #' @examples
 #' getCtryRasterOutputFname("KEN","201412")
-#'  
+#'
 #' @export
 getCtryRasterOutputFname <- function(ctryCode, nlYearMonth)
 {
-  return (paste0(dirRasterOutput, "/",ctryCode, "_", nlYearMonth,".tif"))
+  return (paste0(pkg_options("dirRasterOutput"), "/",ctryCode, "_", nlYearMonth,".tif"))
 }
 
+######################## getCtryPolyUrl ###################################
 
 #' Check if a month number is valid for a given nightlight type
 #'
 #' Get the name of the data file. This function can be altered to name the file as required and consistently
-#'     retrieve the name. Used in the function getCtryNlDataFnamePath to concat the directory path and this 
+#'     retrieve the name. Used in the function getCtryNlDataFnamePath to concat the directory path and this
 #'     filename. Currently all nlTypes are stored in one file. Can be altered to separate VIIRS and OLS data
 #'     files for example.
 #'
 #' @param ctryCode
-#' 
+#'
 #' @return Character filename of the country data file
 #'
 #' @examples
 #' ctryCode <- "KEN"
 #' getCtryNlDataFname(ctryCode)
 #'  #returns name of the ctry data file
-#'  
+#'
 #' @export
 getCtryPolyUrl <- function(ctryCode)
 {
   #Sample url: http://biogeo.ucdavis.edu/data/gadm2.8/shp/AFG_adm_shp.zip
   basePolyUrl <- "http://biogeo.ucdavis.edu/data/gadm2.8/shp/"
-  
+
   return (paste0(basePolyUrl, ctryCode, "_adm_shp.zip"))
 }
+
+######################## getCtryNlDataFname ###################################
 
 #' Check if a month number is valid for a given nightlight type
 #'
 #' Get the name of the data file. This function can be altered to name the file as required and consistently
-#'     retrieve the name. Used in the function getCtryNlDataFnamePath to concat the directory path and this 
+#'     retrieve the name. Used in the function getCtryNlDataFnamePath to concat the directory path and this
 #'     filename. Currently all nlTypes are stored in one file. Can be altered to separate VIIRS and OLS data
 #'     files for example.
 #'
 #' @param ctryCode
-#' 
+#'
 #' @return Character filename of the country data file
 #'
 #' @examples
 #' ctryCode <- "KEN"
 #' getCtryNlDataFname(ctryCode)
 #'  #returns name of the ctry data file
-#'  
+#'
 #' @export
 getCtryNlDataFname <- function(ctryCode)
 {
   return (paste0(ctryCode, "_NLData.csv"))
 }
 
+######################## getCtryNlDataFnamePath ###################################
+
 #' Check if a country data file exists
 #'
 #' Check if a country data file exists. This will only be true if at least one month of data has been processed
 #'     and saved
-#' 
+#'
 #' @param ctryCode
-#' 
+#'
 #' @return Character giving the full path to the data file of a country
 #'
 #' @examples
 #' ctryCode <- "KEN"
 #' ctryDF <- read.csv(getCtryNlDataFnamePath(ctryCode))
 #'  returns DF with nightlight data for the country
-#'  
+#'
 #' @export
 getCtryNlDataFnamePath <- function(ctryCode)
 {
-  return (paste0(dirNlData, "/", getCtryNlDataFname(ctryCode)))
+  return (paste0(pkg_options("dirNlData"), "/", getCtryNlDataFname(ctryCode)))
 }
+
+######################## getCtryNlData ###################################
+
+#' Returns VIIRS nightlight data for the given countries in the given year months
+#'
+#' Returns VIIRS nightlight data for the given countries in the given year months
+#'
+#' @param ctryCode the ISO3 code of the country
+#'
+#' @param nlYearMonths a vector of yearMonths
+#'
+#' @return dataframe of data for one country in one or multiple yearmonths
+#'
+#' @examples
+#'
+#' getCtryNlData("KEN", "201204")
+#'  #returns dataframe
+#'
+#' @export
+getCtryNlData <- function(stat, ctryCode, nlYearMonths, ignoreMissing=NULL, source="local")
+{
+  if(missing(ctryCode))
+    stop("Missing required ctryCode")
+
+  if (!missing(nlYearMonths)) #if nlYearMonths is not provided return all data
+  {
+    existnlYMs <- sapply(nlYearMonths, function(nlYM) existsCtryNlDataVIIRS(ctryCode, nlYM))
+
+    if (!all(existnlYMs))
+    {
+      if (is.null(ignoreMissing)) #default
+      {
+        gase::warning("IgnoreMissing not set. No data found for ", ctryCode, " in ", gase::paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning NULL. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        return (NULL)
+      }
+      else if(!ignoreMissing)
+      {
+        warning("IgnoreMissing == FALSE. Processing data not found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". This may take a while. Note: Set \"ignoreMissing=TRUE\" to return only data found or \"ignoreMissing=NULL\" to return NULL if not all the data is found")
+        processNtLts(ctryCode, nlYearMonths)
+      }
+      else if (ignoreMissing)
+      {
+        warning("Ignoring missing data for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning existing data only.")
+      }
+      else
+      {
+        warning("Invalid value for \"ignoreMissing\". Exiting. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        return(NULL)
+      }
+    }
+  }
+  else
+  {
+    ctryData <- as.data.frame(fread(getCtryNlDataFnamePath(ctryCode)))
+
+    return(ctryData)
+  }
+
+  #to remove any missing nlYearMonths if ignoreMissing==TRUE
+  existingCols <- names(existnlYMs[which(existnlYMs)])
+
+  ctryData <- as.data.frame(data.table::fread(getCtryNlDataFnamePath(ctryCode)))
+
+  #get the names of the columns in the data file
+  cols <- names(ctryData)
+
+  #retain columns with country admin levels
+  cols <- cols[grep("^[^NL_]", cols)]
+
+  nlCols <- as.character(sapply(existingCols, function(x) getCtryNlDataColName(stat, "VIIRS", nlYearMonth=x)))
+
+  cols <- c(cols, nlCols)
+
+  #add the column with the relevant yearmonth
+  ctryData <- ctryData[,cols]
+
+  return(ctryData)
+}
+
+######################## getCtryNlDataColName ###################################
+
+#' Construct the name of a nightlight data column given the nightlight type and yearMonth
+#'
+#' Construct the name of a nightlight data column given the nightlight type and yearMonth. Used in creating and retrieving data columns from the nightlight data file
+#'
+#' @param nlType character vector. the type of nightlight i.e. "OLS" or VIIRS. Default=VIIRS
+#'
+#' @param nlYearMonth character vector. the yearMonth (concat year + month) in the format "YYYYMM" e.g. "201203"
+#'
+#' @return character string
+#'
+#' @examples
+#' ctryCode <- "KEN"
+#' dt <- read.csv(getCtryNlDataFnamePath(ctryCode))
+#' dt <- dt[,getCtryNlDataColName(nlType="VIIRS", "201612")]
+#'
+#' @export
+getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
+{
+  if (missing("statType") || !is.character(statType) || statType == "" || is.null(statType))
+    stop("statType not provided")
+  if (!tolower(statType) %in% c("sum", "mean", "median", "quantile", "min", "max"))
+    stop("Invalid statType")
+  
+  colName <- "NL_"
+  
+  if (nlType=="VIIRS")
+    colName <- paste0(colName, "VIIRS_")
+  else if(nlType == "OLS")
+    colName <- paste0(colName, "OLS_")
+  
+  colName <- paste0(colName, nlYearMonth, "_")
+  
+  colName <- paste0(colName, 
+                    switch(tolower(statType),
+                           sum = "SUM",
+                           mean = "MEAN",
+                           min = "MIN",
+                           max = "MAX"
+                           )
+                    )
+  
+  return(colName)
+}
+
+######################## existsCtryNlDataFile ###################################
 
 #' Check if a country's data file exists
 #'
 #' Check if a country's data file exists
 #'
 #' @param ctryCode the ISO3 country code
-#' 
-#' 
+#'
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' ctryCode <- "KEN"
 #' if(existsCtryNlDataFile(ctryCode))
 #'  message("Data file for ", ctryCode, " found")
-#'  
+#'
 #' @export
 existsCtryNlDataFile <- function(ctryCode)
 {
@@ -2032,18 +2416,20 @@ existsCtryNlDataFile <- function(ctryCode)
   return(file.exists(getCtryNlDataFnamePath(ctryCode)))
 }
 
+######################## polyFnamePathExists ###################################
+
 #' Check if the decompressed country polygon has been downloaded and stored in the polygon folder
 #'
 #' Check if the decompressed country polygon has been downloaded and stored in the polygon folder
 #'
 #' @param ctryCode
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' polyFnamePathExists("KEN")
 #'  TRUE/FALSE
-#'  
+#'
 #' @export
 polyFnamePathExists <- function(ctryCode)
 {
@@ -2051,35 +2437,39 @@ polyFnamePathExists <- function(ctryCode)
   return(dir.exists(getPolyFnamePath(ctryCode)))
 }
 
+######################## polyFnameZipExists ###################################
+
 #' Check if the compressed country polygon has been downloaded and stored in the polygon folder
 #'
 #' Check if the compressed country polygon has been downloaded and stored in the polygon folder
 #'
 #' @param ctryCode
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' polyFnameZipExists("KEN")
 #'  TRUE/FALSE
-#'  
+#'
 #' @export
 polyFnameZipExists <- function(ctryCode)
 {
   return(file.exists(getPolyFnameZip(ctryCode)))
 }
 
+######################## getCtryShpLyrName ###################################
+
 #' Get the standard name of a polygon layer for a country
 #'
-#' Get the standard name of a polygon layer for a country. Used to refer to a polygon layer by name. 
+#' Get the standard name of a polygon layer for a country. Used to refer to a polygon layer by name.
 #'     i.e. for CTRYCODE & lyrNum="0": lyrName="CTRYCODE_adm0", lyrNum="1": lyrName="KEN_adm1". Note this is
 #'     different from the country official
 #'     administration level name.
 #'
 #' @param ctryCode the ISO3 code for the country
-#' 
+#'
 #' @param lyrNum the order of the layer starting from 0 = country level, 1 = first admin level
-#' 
+#'
 #' @return Character layer name
 #'
 #' @examples
@@ -2091,44 +2481,48 @@ getCtryShpLyrName <- function(ctryCode, lyrNum)
   return(paste0(ctryCode, "_adm", lyrNum))
 }
 
+######################## getCtryShpLowestLyrName ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' validNlMonthNum("01","VIIRS")
 #'  returns TRUE
-#'  
+#'
 #' @export
 getCtryShpLowestLyrName <- function(ctryCode)
 {
-  layers <- ogrListLayers(getPolyFnamePath(ctryCode))
-  
+  layers <- rgdal::ogrListLayers(getPolyFnamePath(ctryCode))
+
   admLayers <- layers[grep("adm", layers)]
-  
+
   admLayerNums <- gsub("[^[:digit:]]", "", admLayers)
-  
+
   lowestAdmLyrName <- admLayers[order(as.numeric(admLayerNums),decreasing = T)][1]
-  
+
   return(lowestAdmLyrName)
 }
 
+######################## getCtryPolyAdmLevelNames ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2137,57 +2531,59 @@ getCtryShpLowestLyrName <- function(ctryCode)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getCtryPolyAdmLevelNames <- function(ctryCode)
 {
   lowestLayer <- getCtryShpLowestLyrName(ctryCode)
-  
+
   numLayers <- ctryShpLyrName2Num(lowestLayer)
-  
+
   admLevels <- NULL
-  
+
   if (numLayers > 0)
     for (lyrNum in 1:numLayers)
     {
-      lyrPoly <- readOGR(getPolyFnamePath(ctryCode), getCtryShpLyrName(ctryCode, lyrNum))
-      
+      lyrPoly <- rgdal::readOGR(getPolyFnamePath(ctryCode), getCtryShpLyrName(ctryCode, lyrNum))
+
       lvlTypeName <- paste0("TYPE_",lyrNum)
-      
-      lvlName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeName)]))
-      
+
+      lvlName <- as.character(unlist(lyrPoly@data[2, eval(lvlTypeName)]))
+
       lvlTypeEngName <- paste0("ENGTYPE_",lyrNum)
-      
+
       lvlEngName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeEngName)]))
-      
+
       if ((!is.na(lvlName) && !is.na(lvlEngName)) && lvlName != lvlEngName)
         lvlName <- paste0(lvlName, "_(", lvlEngName, ")")
-      
+
       if (is.na(lvlName))
         lvlName <- "Unknown"
-      
+
       admLevels <- c(admLevels, as.character(lvlName))
     }
-  
+
   #admLevels <- as.data.frame(cbind(1:numLayers, admLevels))
-  
+
   #names(admLevels) <- c("id", "name")
-  
-  return (admLevels)  
+
+  return (admLevels)
 }
+
+######################## dnldCtryPoly ###################################
 
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2196,17 +2592,17 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 dnldCtryPoly <- function(ctryCode)
 {
   fullPolyUrl <- getCtryPolyUrl(ctryCode)
-  
+
   result <- NULL
-  
+
   #if the path doesn't exist
   if (!polyFnamePathExists(ctryCode))
   {
@@ -2214,12 +2610,12 @@ dnldCtryPoly <- function(ctryCode)
     {
       if(download.file(url = getCtryPolyUrl(ctryCode), destfile = getPolyFnameZip(ctryCode), method = "wget", mode = "wb", extra = "-c") == 0)
       {
-        result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
+        result <- utils::unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
         file.remove(getPolyFnameZip(ctryCode))
       }
     }else
     {
-      result <- unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
+      result <- utils::unzip(getPolyFnameZip(ctryCode), exdir = getPolyFnamePath(ctryCode))
       file.remove(getPolyFnameZip(ctryCode))
     }
   }
@@ -2227,19 +2623,21 @@ dnldCtryPoly <- function(ctryCode)
   {
     message("Polygon ", ctryCode, " already exists")
   }
-  
+
   return (!is.null(result))
 }
 
+######################## getAllNlYears ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2248,10 +2646,10 @@ dnldCtryPoly <- function(ctryCode)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getAllNlYears <- function(nlType = "VIIRS")
 {
@@ -2261,28 +2659,30 @@ getAllNlYears <- function(nlType = "VIIRS")
   {
     yrs <- 2012:year(now())
     mths <- c(paste("0",1:9, sep= ""),10:12)
-    
-    currYrMth <- paste0(year(now()), ifelse(month(now())<10,paste("0", month(now()), sep=""), month(now())))
-    
-    nlYrMths <- unlist(lapply(yrs, FUN = function(x) paste(x,mths,sep="")))
-    
+
+    currYrMth <- paste0(lubridate::year(now()), ifelse(lubridate::month(now())<10, paste("0", lubridate::month(now()), sep=""), lubridate::month(now())))
+
+    nlYrMths <- utils::unlist(lapply(yrs, FUN = function(x) paste(x,mths,sep="")))
+
     nlYrMths <- nlYrMths[nlYrMths >= "201204" & nlYrMths <= currYrMth]
-    
+
     return (nlYrMths)
   }
   else
     return()
 }
 
+######################## getAllNlCtryCodes ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2291,66 +2691,68 @@ getAllNlYears <- function(nlType = "VIIRS")
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getAllNlCtryCodes <- function(omit="none")
 {
   #omit is a vector and can contain "long", "missing" or "error"
   #if omit is "none" do not exclude any countries
   #if omit is "all", empty or NA set to default: omit=c("long", "missing", "error")
-  
+
   omit <- tolower(omit)
-  
+
   if(omit != "none" && (omit == "all" || !(omit %in% c("long", "missing", "error")) || is.na(omit)))
     omit <- c("long", "missing", "error")
 
   tooLongProcessing <- ""
   missingPolygon <- ""
   errorProcessing <- ""
-  
+
   if ("long" %in% omit)
     tooLongProcessing <- c("RUS", "BRA", "USA", "ATA", "FRA")
-  
+
   if ("missing" %in% omit)
     missingPolygon <- c("CYN",  "KOS", "Ashm", "Gaza", "IOA", "KAS")
-  
+
   if ("error" %in% omit)
     errorProcessing <- c("ATF", "GNQ", "KIR", "NZL", "CAN", "MUS")
-  
+
   #consolidate the list of countries to omit
   omitCountries <- unlist(c(tooLongProcessing, missingPolygon, errorProcessing))
-  
+
   #rworldmap has more country codes in countryRegions$ISO3 than in the map itself
   #select ctryCodes from the map data itself
   map <- rworldmap::getMap()
 
   #some polygons have problems. use cleangeo package to rectify
-  map <- clgeo_Clean(map)
-  
+  map <- cleangeo::clgeo_Clean(map)
+
   #get the list of country codes from the rworldmap
   ctryCodes <- as.character(map@data$ISO3)
-  
+
   #remove all omitCountries from the list
   ctryCodes <- subset(ctryCodes, !(ctryCodes %in% omitCountries))
-  
+
   #sort the country codes in ascending alphabetical order
   ctryCodes <- ctryCodes[order(ctryCodes)]
 
   return (ctryCodes)
 }
 
+######################## getNlType ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2359,10 +2761,10 @@ getAllNlCtryCodes <- function(omit="none")
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getNlType <- function(nlYear)
 {
@@ -2375,106 +2777,87 @@ getNlType <- function(nlYear)
     return("VIIRS")
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## getPolyFname ###################################
+
+#' Returns the directory name of the unzipped shapefile downloaded from GADM.ORG without the path
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Returns the directory name of the unzipped shapefile downloaded from GADM.ORG without the path
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @param ctryCode character the ISO3 code of the country
+#'
+#' @return character path to zip
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' getPolyFnameZip("KEN")
+#'  returns "path/to/"
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 getPolyFname <- function(ctryCode)
 {
   #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
   polyFname <- paste0(ctryCode, "_adm_shp")
-  
+
   return (polyFname)
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## getPolyFnamePath ###################################
+
+#' Get the path of the unzipped polygon directory downloaded from GADM.ORG
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Get the path of the unzipped polygon directory downloaded from GADM.ORG. Note the polygons are in ESRI Shapefile format thus when unzipped create a directory with the name <ctrycode>_adm_shp e.g. KEN_adm_shp. The directory will contain a number of files including the .shp file. \code{rgdal::readOGR} can read a shapefile polygon when given the directory path. It will determine which files to read.
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @param ctryCode character the ISO3 code of the country
+#'
+#' @return character path to polygon directory
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' getPolyFnameZip("KEN")
+#'  returns "path/to/"
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 getPolyFnamePath <- function(ctryCode)
 {
-  #check for the shapefile directory created with 
+  #check for the shapefile directory created with
   #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
-  polyFnamePath <- paste0(dirPolygon, "/", getPolyFname(ctryCode))
+  polyFnamePath <- paste0(pkg_options("dirPolygon"), "/", getPolyFname(ctryCode))
 
   return (polyFnamePath)
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## getPolyFnameZip ###################################
+
+#' Get the path of the polygon zip filename downloaded from GADM.ORG
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Get the path of the polygon zip filename downloaded from GADM.ORG
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
+#' @param ctryCode character the ISO3 code of the country
+#'
+#' @return character path to zip
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' getPolyFnameZip("KEN")
+#'  returns "path/to/"
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 getPolyFnameZip <- function(ctryCode)
 {
-  #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
+  #format of shapefiles is <ctryCode>_adm_shp e.g. KEN_adm_shp
   polyFname <- paste0(getPolyFnamePath(ctryCode),".zip")
-  
+
   return (polyFname)
 }
 
+######################## getNlYearMonthTilesOLS ###################################
+
 #' Check if a month number is valid for a given nightlight type
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
 #'
 #' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
+#'
 #' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
@@ -2483,231 +2866,242 @@ getPolyFnameZip <- function(ctryCode)
 #'
 #' validNlMonthNum("13","VIIRS")
 #'  returns FALSE
-#'  
+#'
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
-#'  
+#'
 #' @export
 getNlYearMonthTilesOLS <- function(nlYearMonth, tileList)
 {
   success <- TRUE
-  
+
   for (tile in tileList)
   {
     nlYear <- substr(nlYearMonth, 1, 4)
-    
+
     nlMonth <- substr(nlYearMonth, 5, 6)
-    
-    nlTile <- 
-    
+
+    nlTile <-
+
     #download tile
     success <- success && getNtLtsOls(nlYear, nlMonth, nlTile)
   }
-  
+
   return (success)
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## getNlYearMonthTilesVIIRS ###################################
+
+#' Download the listed VIIRS tiles for a particular nlYearMonth
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Download the listed VIIRS tiles for a particular nlYearMonth
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
+#' @param nlYearMonth character the nlYearMonth to process in the format "YYYYMM"
+#'
+#' @param tileList integer vector or character vector of digits containing valid tile numbers
+#'
+#' @return TRUE/FALSE if the download was successful
 #' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
-#'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' #download tiles for "KEN" which are tiles 2 and 5 for the specified time periods
+#' getNlYearMonthsTilesVIIRS("201201", c(2, 5))
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
+#' #same as above but getting the tileList automatically
+#' getNlYearMonthsTilesVIIRS("201201", tileName2Idx(getCtryCodeTileList("KEN")))
+#' 
+#' returns TRUE if the download was successful
+#'
 #' @export
 getNlYearMonthTilesVIIRS <- function(nlYearMonth, tileList)
 {
   success <- TRUE
-  
-  #registerDoParallel(cores=2)
 
-  #foreach(tile = iter(tileList)) %dopar%(
-  
   #ensure we have all required tiles
   for (tile in tileList)
-  { 
+  {
     nlYear <- substr(nlYearMonth, 1, 4)
-    
+
     nlMonth <- substr(nlYearMonth, 5, 6)
-    
+
     nlTile <- tileName2Idx(tile)
-    
+
     print(paste0(nlYear, nlMonth, nlTile))
-    
+
     #download tile
     success <- success && getNtLtsViirs(nlYear, nlMonth, nlTile)
+  }
+
+  return (success)
+}
+
+######################## getAllNlYearMonthsTiles ###################################
+
+#' Downloads all the listed VIIRS tiles for a particular year, month
+#'
+#' Downloads all the listed VIIRS tiles for a particular year, month
+#'
+#' @param nlYearMonths character vector a list of the nlYearMonths to process in the format "YYYYMM"
+#'
+#' @param tileList character vector a list of tile numbers (1-6) to download
+#'
+#' @return TRUE/FALSE
+#'
+#' @examples
+#' #download tiles for "KEN" which are tiles 2 and 5 for the specified time periods
+#' getAllNlYearMonthsTiles(c("201201", "201202", "201205"), c(2, 5))
+#'
+#' #same as above but getting the tileList automatically
+#' getAllNlYearMonthsTiles(c("201201", "201202", "201205"), tileName2Idx(getCtryCodeTileList("KEN")))
+#' returns TRUE if all downloads were successful
+#'
+#' @export
+getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
+{
+  #validation
+  #check nlYearMonths
+  valid <- sapply(nlYearMonths, validNlYearMonthVIIRS)
+  
+  if (!all(valid))
+    stop("invalid nlYearMonths detected: ", nlYearMonths[!valid])
+
+  #check tileList  
+  if(missing("tileList") || length(tileList) == 0 || is.integer(tileList))
+    stop("Invalid tileList")
+  
+  #all good we can start
+  success <- TRUE
+  
+  for (nlYearMonth in nlYearMonths)
+  {
+    success <- success && getNlYearMonthTilesVIIRS(nlYearMonth, tileList)
   }
   
   return (success)
 }
 
-#' Check if a month number is valid for a given nightlight type
-#'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
-#'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
-#' @return TRUE/FALSE
-#'
-#' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
-#'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
-#' @export
-getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
-{
-  for (nlYearMonth in nlYearMonths)
-  {
-    getNlYearMonthTilesVIIRS(nlYearMonth, tileList)
-  }
-}
+######################## existsCtryCodeTiles ###################################
 
-#' Check if a month number is valid for a given nightlight type
+#' Check if the variable ctryCodeTiles exists
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Check if the variable ctryCodeTiles, which is a mapping between countryCodes and the tiles it intersects with, exists as created by \code{mapCtryPolyToTiles()}.
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' if(!existsCtryCodeTiles())
+#'   mapCtryPolyToTiles()
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 existsCtryCodeTiles <- function()
 {
   return (exists("ctryCodeTiles") && class(ctryCodeTiles)=="data.frame" && !is.null(ctryCodeTiles))
 }
 
-#' Check if a month number is valid for a given nightlight type
+######################## getCtryCodeTileList ###################################
+
+#' Returns a list of VIIRS nightlight tiles that a country or countries intersects with
 #'
-#' Check if a month number is valid for a given nightlight type. Note month num is only valid for 
-#' "VIIRS" nightlight type 
+#' Given a list of countries, this function will provide alist of VIIRS nightlight tiles that intersect with them. This helps in processing multiple countries by determining which nightlight tiles are required for processing by allowing the download of all required tiles before processing. 
 #'
-#' @param monthNum the month in "MM" format e.g. Jan="01", Feb="02"
-#' 
-#' @param nlType type of nightlight either "VIIRS" or "OLS"
-#' 
+#' @param ctryCodes character vector of country codes to process
+#'
+#' @param omitCountries countries to exclude from processing. This is helpful when the number of countries to exclude is smaller than the number to process e.g. when one wants to process all countries and exclude countries that take long to process i.e. omitCountries = "long"
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' validNlMonthNum("01","VIIRS")
-#'  returns TRUE
+#' getCtryCodeTileList(ctryCodes=c("BUR", KEN", "RWA", "UGA", "TZA"), omitCountries="none")
+#' 
+#' getCtryCodeTileList(ctryCodes="all", omitCountries="long")
 #'
-#' validNlMonthNum("13","VIIRS")
-#'  returns FALSE
-#'  
-#' validNlMonthNum("01","OLS")
-#'  returns FALSE
-#'  
 #' @export
 getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
 {
   ctryTiles <- unlist(mapCtryPolyToTiles(ctryCodes, omitCountries)$tiles)
-  
+
   return (ctryTiles)
 }
 
-#' Check if the VIIRS nightlight data for the country exists in the country nightlight data file
+######################## existsCtryNlDataVIIRS ###################################
+
+#' Check if VIIRS nightlight data for a country in a given year and month already exists locally
 #'
-#' Check if the VIIRS nightlight data for the country exists in the country nightlight data file. First checks if the country nightlight data file exists.
+#' Check if VIIRS nightlight data for the country exists in the country nightlight data file. First checks if the country nightlight data file exists.
 #'
-#' @param ctryCode the ISO3 code of the country
-#' 
-#' @param nlYearMonth a character vector of the year and month concatenated
-#' 
+#' @param ctryCode character the ISO3 code of the country
+#'
+#' @param nlYearMonth character the year and month concatenated
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
 #' existsCtryNlDataVIIRS("KEN", "201204")
-#'  
+#'
 #' @export
 existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
 {
   if (!existsCtryNlDataFile(ctryCode))
     return (FALSE)
-  
-  dt <- read.csv(getCtryNlDataFnamePath(ctryCode), nrow=1, header=TRUE)
-  
+
+  dt <- utils::read.csv(getCtryNlDataFnamePath(ctryCode), nrow=1, header=TRUE)
+
   hd <- names(dt)
-  
+
   if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
     return(TRUE)
   else
     return(FALSE)
 }
 
-#' Downloads nightlight tiles and country polygons, clips the rasters and extracts data from them
+######################## processNtLts ###################################
+
+#' Downloads nightlight tiles and country polygons and calls the function to process them
 #'
-#' Downloads nightlight tiles and country polygons, clips the rasters and extracts data from them cacheing the data and clipped rasters locally
-#'
+#' Downloads nightlight tiles and country polygons in preparation for the appropriate functions to process them. Given a list of countries and nlYearMonths and an nlType, processNtLts will first determine which countries and periods do not actually have data i.e. have not been previously processed. From the list of countries and prediods that need processing, it determines which nightlight tiles require to be downloaded. At the same time, it downloads any country polygons which have not already been downloaded.
+#' 
+#' processNtLts then calls the appropriate function to process the data depending on the type of nightlights. i.e. OLS = processNlCountryOLS and VIIRS = processNlCountryVIIRS
+#' 
+#' This is the main entry-point to the package and the main user-facing function. However, it works in batch mode and caches all data without returning any data to the user. However, it will return TRUE/FALSE depending on whether it completed successfully. Since it saves state regularly it can be run multiply in case of failure until it finally returns TRUE. This is where the only constraints are downloading and processing errors due to bandwidth or other resource constraints. A good example is running a long-running batch on an AWS EC2 spot-priced machine where the server may be decommissioned at any time. See more in the examples.
+#' 
 #' @param ctryCodes the list of countries to be processed
-#' 
-#' @param nlYearMonths the concatenated year+month(s) to be processed
-#' 
-#' @param nlType the type of nightlights to process i.e. OLS/VIIRS
-#' 
-#' @return TRUE/FALSE
+#'
+#' @param nlYearMonths the concatenated year+month(s) to be processed e.g. ""201205"
+#'
+#' @param nlType the type of nightlights to process i.e. "OLS" or "VIIRS". Default "VIIRS"
+#'
+#' @return None
 #'
 #' @examples
-#' 
-#' #Example 1: process nightlights for all countries and all periods available
-#' initNtLts() #improve performance by initializing some variables
-#'  
-#' processNtLts() 
-#' 
+#'
+#' #Example 1: process VIIRS nightlights for all countries and all periods available e.g. to create a local cache or repo
+#' initNtLts() #Recommend running initNtLts() to improve performance. It stores some global variables so that they do not have to be re-evaluated multiply
+#'
+#' processNtLts() #process VIIRS nightlights for all countries and all periods
+#'
 #' #Example 2: process nightlights for all countries in 2012 only
-#' initNtLts()
+#' initNtLts() #for performance
 #'
-#' nlYrMths <- getAllNlYears()
+#' nlYrMths <- getAllNlYears() #get a list of all nightlight periods to present-day
 #'
-#' nlYrMths <- nlYrMths[grep("^2012", nlYrMths)]
+#' nlYrMths <- nlYrMths[grep("^2012", nlYrMths)] #filter only periods in 2012
 #'
 #' processNtLts(nlYearMonths=nlYrMths)
-#'  
-#'  #Example 3: process nightlights for all KEN & RWA in 2012 only
+#'
+#'  #Example 3: process VIIRS nightlights for countries KEN & RWA in 2014 Jan to 2014 May only
 #' initNtLts()
 #'
 #' cCodes <- c("KEN", "RWA")
-#'  
+#'
 #' nlYrMths <- getAllNlYears()
 #'
-#' nlYrMths <- nlYrMths[grep("^2012", nlYrMths)]
+#' nlYrMths <- nlYrMths[grep("^20120[1-5]", nlYrMths)]
 #'
 #' processNtLts(ctryCodes=cCodes, nlYearMonths=nlYrMths)
+#' 
+#' Example 4: process VIIRS nightlights for countries KEN & RWA in 2014 Oct to 2014 Dec only
+#'
+#' processNtLts(ctryCodes=c("KEN", "RWA"), nlYearMonths=c("201410", "201411", "201412"))
+#' 
 #' @export
 processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAllNlYears(), nlType="VIIRS")
 {
@@ -2717,18 +3111,30 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
   #if none given default to all year_months
   #TODO:
   #1. if years only given, infer months
-  #2.verification & deduplication
-  
-  if (!existsNlTiles())
-    nlTiles <- getNlTiles()
-  
-  if (is.null(nlYearMonths))
+  #2. verification & deduplication
+  #3. OLS
+
+  #if the period is not given process all available periods
+  if (missing("nlYearMonths") || is.null(nlYearMonths) || length(nlYearMonths) == 0 || nlYearMonths == "")
   {
     nlYears <- getAllNlYears(nlType)
   }
-
+  
+  allValid <- sapply(nlYearMonths, validNlYearMonthVIIRS) #check if the nlYearMonths are valid
+  
+  if (sum(allValid) != length(nlYearMonths)) #if some returned FALSE
+  {
+    invalidNlYearMonths <- nlYearMonths[!allValid] #get the invalid nlYearMonths
+    
+    stop("Invalid nlYearMonths detected: ", paste0(invalidNlYearMonths, collapse = ", "))
+  }
+  
+  #if the tile mapping does not exist create it
+  if (!existsNlTiles())
+    nlTiles <- getNlTiles()
+  
   #use supplied list of ctryCodes in ISO3 format else use default of all
-  #TODO: 
+  #TODO:
   #1.accept other formats and convert as necessary
   #2.verification & deduplication
   if (is.null(ctryCodes))
@@ -2736,89 +3142,91 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
     #get list of all country codes
     ctryCodes <- getAllNlCtryCodes(omit = "all")
   }
-  
-  ##First step: Determine which tiles are required for processing. This is determined by the 
+
+  ##First step: Determine which tiles are required for processing. This is determined by the
   #list of ctryCodes. Since theoretically we need the polygons of all countries to determine which
   #tiles to download we take the opportunity to download all required shapefiles
   #Practically, we can stop as soon as all 6 tiles are flagged for download.
-  
+
   ##If any tiles cannot be found/downloaded then abort and try for next country
   #we probably need to flag failed downloads so we don't try to process them and report back to user
-  
+
+  #download all country polygons if they don't already exist
   for (ctryCode in ctryCodes)
   {
     dnldCtryPoly(ctryCode)
   }
-  
+
   #for all nlYearMonths check if the tiles exist else download
   for (nlYearMonth in nlYearMonths)
   {
     message("Checking tiles required for ", nlYearMonth)
-    
+
     nlType <- getNlType(substr(nlYearMonth,1,4))
 
     #init the list of tiles to be downloaded
     tileList <- NULL
-    
+
     #determine tiles to download
     if (nlType == "VIIRS")
     {
       ctryTiles <- NULL
-      
+
       tileList <- NULL
-      
+
       #For each country
       for (ctryCode in unique(ctryCodes))
       {
         if (existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
         {
           message ("Data exists for", ctryCode)
-          
-          next()
+
+          next
         }
-        
+
         message("Adding tiles for ", ctryCode)
-        
+
         ctryTiles <- getCtryCodeTileList(ctryCode)
-        
-        tileList <- c(tileList, setdiff(ctryTiles, tileList))
-        
+
+        tileList <- c(tileList, rgeos::setdiff(ctryTiles, tileList))
+
         if (length(tileList) == nrow(nlTiles))
         {
           message ("All tiles have been listed. No need to check other country tiles")
-          
+
           break
         }
       }
-    
+
       if (length(tileList) == 0)
       {
         message("No tiles needed for ", nlYearMonth, ". Process next nlYearMonth")
-        
+
         next
       }
 
       if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
       {
         print("Something went wrong with the tile downloads. Aborting ...")
-        
+
         break
       }
-      
+
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
         processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = cropMaskMethod)
       }
-      
+
+      #post-processing. Delete the downloaded tiles to release disk space
       for (tile in tileList)
       {
         nlYear <- substr(nlYearMonth, 1, 4)
         nlMonth <- substr(nlYearMonth, 5, 6)
-        
+
         #del the tif file
         file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
-        
+
         #del the zip file
         file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
       }
@@ -2828,65 +3236,69 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
       if (!getNlYearMonthTilesOLS(nlYearMonth))
       {
         print("Something went wrong with the tile downloads. Aborting ...")
-        
+
         break
       }
-      
+
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
         processNLCountryOls(ctryCode, nlYearMonth)
       }
-      
+
     }
   }
 }
 
-#' Initialize some important variables
+######################## initNtLts ###################################
+
+#' Initialize some important variables and create directory structure
 #'
-#' Initialize some important variables
+#' Initialize some important variables and create directory structure
 #'
 #' @return NULL
 #'
 #' @examples
-#'  
+#'
 #'  initNtLts()
-#'  
+#'
 #' @export
 initNtLts <- function(omitCountries="none")
 {
   #the constructor
-  
-  #set directory paths (tiles, ctrypoly, output/cropped rasters, downloads/temp?)
-  
-  #create directories
-  if(!dir.exists(dirPolygon))
-    dir.create(dirPolygon)
-  
-  if(!dir.exists(dirRasterOLS))
-    dir.create(dirRasterOLS)
-  
-  if(!dir.exists(dirRasterVIIRS))
-    dir.create(dirRasterVIIRS)
-  
-  if(!dir.exists(dirNlData))
-    dir.create(dirNlData)
-  
-  if(!dir.exists(dirRasterOutput))
-    dir.create(dirRasterOutput)
 
-  if(!dir.exists(dirRasterWeb))
-    dir.create(dirRasterWeb)
-    
-  if(!dir.exists(dirZonals))
-    dir.create(dirZonals)
-  
+  #set directory paths (tiles, ctrypoly, output/cropped rasters, downloads/temp?)
+
+  #create directories
+  if(!dir.exists(pkg_options("dirPolygon")))
+    dir.create(pkg_options("dirPolygon"))
+
+  if(!dir.exists(pkg_options("dirRasterOLS")))
+    dir.create(pkg_options("dirRasterOLS"))
+
+  if(!dir.exists(pkg_options("dirRasterVIIRS")))
+    dir.create(pkg_options("dirRasterVIIRS"))
+
+  if(!dir.exists(pkg_options("dirNlData")))
+    dir.create(pkg_options("dirNlData"))
+
+  if(!dir.exists(pkg_options("dirRasterOutput")))
+    dir.create(pkg_options("dirRasterOutput"))
+
+  if(!dir.exists(pkg_options("dirRasterWeb")))
+    dir.create(pkg_options("dirRasterWeb"))
+
+  if(!dir.exists(pkg_options("dirZonals")))
+    dir.create(pkg_options("dirZonals"))
+
+  #create the nlTiles and tileSpPolysDFs variables in the global environment to speed up processing
+  #the two speed up tile lookup
   nlTiles <<- getNlTiles()
-  
+
   tSpPolysDFs <<- createNlTilesSpPolysDF()
-  
-  #
 }
+
+######################## cleanup ###################################
 
 #' Clean up the environment after processing (Not yet implemented)
 #'
@@ -2896,107 +3308,111 @@ initNtLts <- function(omitCountries="none")
 #'
 #' @examples
 #'  cleanup()
-#'  
+#'
 #' @export
 cleanup <- function()
 {
   #the destructor
-  
+
   #del temp files
-  
+
   #ensure files have been written that need to
-  
+
   #
 }
 
+######################## myZonal ###################################
+
 #' Calculate zonal statistics. Used internally
 #'
-#' Calculate zonal statistics. Used internally by zonalpipe
+#' Calculate zonal statistics. Used internally by zonalpipe. Modified from \url{http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/}
 #'
 #' @param x the country raster
-#' 
+#'
 #' @param z the zonal country polygon layer
-#' 
-#' @param stat the function to calculate on 
-#' 
-#' @param digits round off to how many decimals 
-#' 
+#'
+#' @param stat the function to calculate on
+#'
+#' @param digits round off to how many decimals
+#'
 #' @param na.rm how to handle NAs
-#' 
+#'
 #' @param ...
-#' 
+#'
 #' @return numeric value result of the given stat function
 #'
 #' @examples
 #' myZonal
-#'  
-myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...) 
-{ 
+#'
+myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...)
+{
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
-  
+
   fun <- match.fun(stat)
-  
+
   vals <- NULL
 
   zones <- NULL
-  
-  blocks <- blockSize(x)
-  
+
+  blocks <- raster::blockSize(x)
+
   result <- NULL
-  
+
   for (i in 1:blocks$n)
   {
     message("Block: ", i)
-    
+
     message("Reading X")
-    vals <- getValues(x, blocks$row[i], blocks$nrows[i])
+    vals <- raster::getValues(x, blocks$row[i], blocks$nrows[i])
 
     vals[vals < 0] <- NA
-    
+
     message("Reading Zones")
     zones <- round(getValues(z, blocks$row[i], blocks$nrows[i]), digits = digits)
-    
-    rDT <- data.table(vals, z=zones)
-    
+
+    rDT <- data.table::data.table(vals, z=zones)
+
     #setkey(rDT, z)
-    
+
     message("Calculating partial ", stat)
     result <- rbind(result, rDT[, lapply(.SD, fun, na.rm = TRUE), by=z])
   }
-  
+
   result <- result[, lapply(.SD, fun, na.rm = TRUE), by=z]
-  
+
   gc()
-  
+
   return(result)
-} 
+}
+
+######################## ZonalPipe ###################################
 
 #' Create a zonal file if it does not exist and calculate the zonal stats
 #'
-#' Create a zonal file if it does not exist and calculate the zonal stats by calling the myZonal function
+#' Create a zonal file if it does not exist and calculate the zonal stats by calling the myZonal function. Modified from \url{http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/}
 #'
 #' @param ctryCode
-#' 
+#'
 #' @param ctryPoly
-#' 
+#'
 #' @param path.in.shp
-#' 
+#'
 #' @param path.in.r
-#' 
+#'
 #' @param path.out.r
-#' 
+#'
 #' @param path.out.shp
-#' 
+#'
 #' @param zone.attribute
-#' 
+#'
 #' @param stat
-#' 
+#'
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' 
-#'  
-#'  
+#'
+#'
+#'
 #' @export
 ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat)
 {
@@ -3007,24 +3423,24 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
   #path.out.shp: Path of path.in.shp with stat value (OUTPUT)
   #zone.attribute: Attribute name of path.in.shp corresponding to the zones (ID, Country...)
   #stat: function to summary path.in.r values ("mean", "sum"...)
-  
+
   # 1/ Rasterize using GDAL
 
   #Initiate parameter
-  r<-stack(path.in.r)
-  
+  r<-raster::stack(path.in.r)
+
   if (!file.exists(path.out.r))
   {
     message("Zonal file ", path.out.r, " doesn't exist. Creating")
 
-    ext<-extent(r)
+    ext<-raster::extent(r)
     ext<-paste(ext[1], ext[3], ext[2], ext[4])
-    
+
     res<-paste(res(r)[1], res(r)[2])
-    
+
     lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
     lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
-    
+
     #Gdal_rasterize
     message("Creating zonal raster")
     command<-'gdal_rasterize'
@@ -3037,85 +3453,87 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
     #command<-paste(command, "-a_nodata", 0)
     command<-paste(command, path.in.shp)
     command<-paste(command, "temprast.tif")
-    
+
     system(command)
-    
+
     message("Compressing zonal raster")
-    gdal_translate(co = "compress=LZW", src_dataset = "temprast.tif", dst_dataset = path.out.r)
-    
+    gdalUtils::gdal_translate(co = "compress=LZW", src_dataset = "temprast.tif", dst_dataset = path.out.r)
+
     file.remove("temprast.tif")
   }
-  
+
   message("Zonal file ", path.out.r, " found")
-  
+
   # 2/ Zonal Stat using myZonal function
-  zone<-raster(path.out.r)
-  
+  zone<-raster::raster(path.out.r)
+
   message("Calculating zonal stats ...")
   Zstat<-data.frame(myZonal(r, zone, stat))
-  
+
   message("Calculating zonal stats ... DONE")
-  
+
   colnames(Zstat)[2:length(Zstat)]<-paste0("B", c(1:(length(Zstat)-1)), "_",stat)
-  
+
   return(Zstat)
-  
+
   # 3/ Merge data in the shapefile and write it
   #shp<-readOGR(path.in.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)))
-  
+
   #shp@data <- data.frame(shp@data, Zstat[match(shp@data[,zone.attribute], Zstat[, "z"]),])
-  
+
   #writeOGR(shp, path.out.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)), driver="ESRI Shapefile")
 }
 
+######################## fnSumAvgRadGdal ###################################
+
 #' Calculate zonal statistics. Alternative to masq_viirs using GDAL. Faster for large polygons.
 #'
-#' Calculate zonal statistics. Alternative to masq_viirs using GDAL. Faster for large polygons.
+#' Calculate zonal statistics. Alternative to masq_viirs using GDAL. Faster for large polygons. Modified from \url{http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/}
 #'
 #' @param ctryCode the ISO3 country code to be processed
-#' 
+#'
 #' @param ctryPoly the loaded country polygon layer
-#' 
+#'
 #' @param nlYearMonth the concatenated year+month to be processed
-#' 
+#'
 #' @return data.frame of polygon attributes and the calculated stats
 #'
 #' @examples
 #' validNlMonthNum("01","VIIRS")
 #'  returns TRUE
-#'  
+#'
 #' @export
 fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth)
 {
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
   path.in.shp<- getPolyFnamePath(ctryCode)
   path.in.r<- getCtryRasterOutputFname(ctryCode, nlYearMonth) #or path.in.r<-list.files("/home/, pattern=".tif$")
-  path.out.r<- paste0(dirZonals, "/", ctryCode, "_zone.tif")
-  
+  path.out.r<- paste0(pkg_options("dirZonals"), "/", ctryCode, "_zone.tif")
+
   path.out.shp<-"zone_withZstat.shp"
-  
+
   zone.attribute<-paste0("ID_", gsub("[^[:digit:]]", "", getCtryShpLowestLyrName(ctryCode)))
-  
+
   lowestLyrName <- getCtryShpLowestLyrName(ctryCode)
-  
+
   lowestIDCol <- paste0("ID_", gsub("[^[:digit:]]", "", lowestLyrName))
- 
+
   #ctryPoly <- readOGR(getPolyFnamePath(ctryCode), lowestLyrName)
-  
+
   sumAvgRad <-ZonalPipe(ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stat="sum")
-  
+
   ctryPolyData <- ctryPoly@data
-  
+
   ctryPolyData[,lowestIDCol] <- as.integer(ctryPolyData[,lowestIDCol])
-  
+
   ctryPolyData <- ctryPolyData[order(ctryPolyData[,lowestIDCol]),]
-  
+
   #if there is only the country adm level i.e. no lower adm levels than the country adm level then we only have 1 row each but IDs may not match as seen with ATA. treat differently
   #since we do not have IDs to merge by, we simply cbind the columns and return col2
   if (lowestIDCol == "ID_0")
   {
     sumAvgRad <- cbind(ctryPolyData$ID_0, sumAvgRad[sumAvgRad$z!=0,"B1_sum"])
-    
+
     sumAvgRad <- sumAvgRad[,2]
   }
   else
@@ -3124,98 +3542,103 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth)
 
     sumAvgRad <- sumAvgRad$B1_sum
   }
-  
+
   return(sumAvgRad)
 }
+
+######################## fnSumAvgRadRast ###################################
 
 #' Calculate the sum of the radiance of the pixels in a nightlight raster that fall within a polygon
 #'
 #' Calculate the sum of the radiance of the pixels in a nightlight raster that fall within a polygon and its
-#'     subpolygons. Given a country polygon with subpolygons representing lower admin levels, it will 
-#'     crop and mask the raster to each subpolygon and calculate the total radiance for the polygon and 
+#'     subpolygons. Given a country polygon with subpolygons representing lower admin levels, it will
+#'     crop and mask the raster to each subpolygon and calculate the total radiance for the polygon and
 #'     return a vector of total radiances that matches the subpolygons
 #'
 #' @param ctryPoly The polygon of the admin level/region of interest. In general is a country polygon
 #'     with sub-regions usually the lowest known admin level as given by the GADM polygons.
-#' 
+#'
 #' @param ctryRastCropped The raster containing nightlight radiances to sum. Usually will have already be
 #'     cropped to the country outline
-#' 
+#'
 #' @return Integer Sum of radiances of all pixels in a raster that fall within a polygon region
 #'
 #' @examples
 #' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLowestLyrName("KEN")) #read the Kenya polygon downloaded from GADM
 #'     and load the lowest admin level (ward)
-#' ctryRastCropped <- getCtryRasterOutputFname("KEN","201401") # the VIIRS nightlight raster cropped 
+#' ctryRastCropped <- getCtryRasterOutputFname("KEN","201401") # the VIIRS nightlight raster cropped
 #'     earlier to the country outline
 #' sumAvgRadRast <- fnSumAvgRadRast(ctryPoly, ctryRastCropped) #calculate the sum of radiances for the wards
 #'     in Kenya
-#'  
+#'
 #' @export
 fnSumAvgRadRast <- function(ctryPoly, ctryRastCropped)
 {
-  registerDoParallel(cores=detectCores()-2)
-  
-  sumAvgRad <- foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar% 
+  doParallel::registerDoParallel(cores=detectCores()-2)
+
+  sumAvgRad <- foreach::foreach(i=1:nrow(ctryPoly@data), .combine=rbind) %dopar%
   {
     message("Extracting data from polygon " , i, " ", base::date())
 
     dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
-    
+
     message("Calculating the NL sum of polygon ", i, " ", base::date())
-    
+
     #calculate and return the mean of all the pixels
     data.frame(sum = sum(dat, na.rm=TRUE))
   }
-  
-  removeTmpFiles(h=0)
-  
+
+  raster::removeTmpFiles(h=0)
+
   gc()
-  
+
   return(sumAvgRad)
 }
 
+######################## getRastPercentiles ###################################
+
 getRastPercentiles <- function(rastFilename)
 {
-  rastInfo <- gdalinfo(rastFilename, hist=T)
+  rastInfo <- gdalUtils::gdalinfo(rastFilename, hist=T)
   rastMinMax <- unlist(strsplit(gsub("[^[:digit:].-]", " ", rastInfo[30]), " "))
   rastMinMax <- as.numeric(rastMinMax[which(rastMinMax!="")])
-  
+
   rastSeq <- seq(rastMinMax[2],rastMinMax[3],length.out = rastMinMax[1])
-  
+
   rastHist <- as.numeric(unlist(strsplit(rastInfo[31]," ")))
   rastHist <- rastHist[!is.na(rastHist)]
-  
+
   rastCumSum <- cumsum(rastHist)
   rastCumProbs <- rastCumSum/last(rastCumSum)
-  
+
   q2 <- last(rastSeq[rastCumProbs<0.2])
-  q3 <- first(rastSeq[rastCumProbs>0.2])  
+  q3 <- first(rastSeq[rastCumProbs>0.2])
   hist1 <- rastHist[]
-  
-  q98 <- last(rastSeq[rastCumProbs<0.98])
-  q99 <- first(rastSeq[rastCumProbs>0.98])
-  
+
+  q98 <- data.table::last(rastSeq[rastCumProbs<0.98])
+  q99 <- data.table::first(rastSeq[rastCumProbs>0.98])
+
   return (c(q2,q98))
 }
 
+######################## writeNightlightsMap ###################################
 
 writeNightlightsMap <- function()
 {
   tplHead <- "
 MAP
   IMAGETYPE  PNG
-  EXTENT	-180 -90 180 90  
+  EXTENT	-180 -90 180 90
   SIZE		800 600
   SHAPEPATH      /var/www/cgi-bin
   IMAGECOLOR     \"#ffffffff\"
   TRANSPARENT 	TRUE
   SHAPEPATH	/btrfs/shiny_nightlights/outputrasters
-  
+
   PROJECTION
     \"init=epsg:4326\"
   END
-  
+
   OUTPUTFORMAT
     NAME GEOTIFF
     DRIVER GDAL/GTiff
@@ -3223,7 +3646,7 @@ MAP
     IMAGEMODE RGB
     EXTENSION tif
   END
-  
+
   WEB
     METADATA
       \"wms_title\" \"Nightlight Rasters\"
@@ -3237,11 +3660,11 @@ MAP
       \"wms_enable_request\" \"*\"
     END
   END"
-  
+
   tplLayer <- "
   LAYER
     NAME	<VAL_NAME>
-    
+
     METADATA
       \"wms_title\"		\"<VAL_NAME>\"
       \"wms_enable_request\"	\"*\"
@@ -3250,212 +3673,316 @@ MAP
       \"wms_include_items\"	\"all\"
       \"wms_dataurl_format\"	\"text/html\"
     END
-    
+
     EXTENT	<VAL_EXTENT>
     DATA	\"<VAL_NAME>.tif\"
     #    TILEINDEX	/btrfs/shiny_nightlights/outputrasters/nightlights_201204.tif
     #    TILEITEM	\"location\"
     STATUS	OFF
     TYPE	RASTER
-    
+
     DUMP TRUE
     PROJECTION
       \"init=epsg:4326\"
     END
-    
+
     CLASSITEM \"[pixel]\"
-    
+
     CLASS
       NAME \"NODATA\"
       EXPRESSION ([pixel] = <VAL_NODATA>)
-      
+
       STYLE
       OPACITY 0
       END
     END
-    
+
 #     CLASS
 #       NAME DEC0
 #       EXPRESSION ([pixel] > <VAL_NODATA> AND [pixel] < <VAL_DEC0>)
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#000000\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC1
 #       EXPRESSION ([pixel] >= <VAL_DEC0> AND [pixel] < <VAL_DEC1> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#5A5A5A\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC2
 #       EXPRESSION ([pixel] >= <VAL_DEC1>  AND [pixel] < <VAL_DEC2>  )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#7B7B7B\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC3
 #       EXPRESSION ([pixel] >= <VAL_DEC2> AND [pixel] < <VAL_DEC3> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#949494\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC4
 #       EXPRESSION ([pixel] >= <VAL_DEC3> AND [pixel] < <VAL_DEC4> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#A8A8A8\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC5
 #       EXPRESSION ([pixel] >= <VAL_DEC4> AND [pixel] < <VAL_DEC5> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#BABABA\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC6
 #       EXPRESSION ([pixel] >= <VAL_DEC5> AND [pixel] < <VAL_DEC6> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#CACACA\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC7
 #       EXPRESSION ([pixel] >= <VAL_DEC6> AND [pixel] < <VAL_DEC7> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#D9D9D9\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC8
 #       EXPRESSION ([pixel] >= <VAL_DEC7> AND [pixel] < <VAL_DEC8>)
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#E6E6E6\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC9
 #       EXPRESSION ([pixel] >= <VAL_DEC9> AND [pixel] < <VAL_DEC10> )
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#F3F3F3\"
 #       END
 #     END
-#     
+#
 #     CLASS
 #       NAME DEC10
 #       EXPRESSION ([pixel] > <VAL_DEC10>)
-#       
+#
 #       STYLE
 #       OPACITY 100
 #       COLOR \"#FFFFFF\"
 #       END
 #     END
   END # MODIS raster layer ends here"
-  
+
   fList <- dir(path = dirRasterOutput, pattern = "*.tif$",full.names = T)
-  
+
   layers <- NULL
   nodata <- "-1.69999999999999994e+308"
 
-  tplMap <- tplHead  
+  tplMap <- tplHead
   tplLayers <- ""
 
   for (f in fList)
   {
     tplLyr <- tplLayer
-    
+
     message(f)
-    rast <- raster(f)
-    e <- extent(rast)
+    rast <- raster::raster(f)
+    e <- raster::extent(rast)
     ext <- paste0(e@xmin, " ", e@ymin, " ", e@xmax, " ", e@ymax )
     qs <- myquantile(rast)
     q2 <- qs[1]
     q98 <- qs[2]
-    
+
     if (is.na(q2))
       q2 <- 0
-    
+
     if (is.na(q98))
       q98 <- 0
-    
+
     deciles <- seq(q2, q98, length.out = 11)
-    
+
     fname <- unlist(stringr::str_split(f, "/"))
-    fname <- last(fname)
-    lyrName <-substr(fname,1,10)
-    
+    fname <- data.table::last(fname)
+    lyrName <- substr(fname,1,10)
+
     tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_NAME>", lyrName)
     tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_NODATA>", nodata)
     tplLyr <- stringr::str_replace_all(tplLyr,  "<VAL_EXTENT>", ext)
-    
+
     for (i in 1:11)
     {
       decval <- paste0("<VAL_DEC", i-1,">")
       tplLyr <- stringr::str_replace_all(tplLyr,  decval, deciles[i])
     }
-    
+
     tplLayers <- paste0(tplLayers, "\n", tplLyr)
   }
-  
+
   tplMap <- paste0(tplMap, "\n", tplLayers, "\nEND #END MAP")
-  
-  write_file(tplMap, "test.map")
+
+  readr::write_file(tplMap, "test.map")
 }
 
-myquantile <- function (x) 
-{ 
+######################## myquantile ###################################
+
+myquantile <- function (x)
+{
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
   vals <- NULL
-  
+
   zones <- NULL
-  
-  blocks <- blockSize(x)
-  
+
+  blocks <- raster::blockSize(x)
+
   result <- NULL
-  
+
   for (i in 1:blocks$n)
   {
-    vals <- getValues(x, blocks$row[i], blocks$nrows[i])
-    
+    vals <- raster::getValues(x, blocks$row[i], blocks$nrows[i])
+
     result <- rbind(result, quantile(vals, c(0.02,0.98),na.rm=T))
   }
-  
+
   result <- colMeans(result, na.rm = T)
-  
+
   gc()
-  
+
   return(result)
-} 
+}
+
+######################## runApplication ###################################
+
+#' Run a web application to explore the processed nightlight data cached locally
+#'
+#' Run a web application to perform some exploratory data analysis. The application written in shiny either loads demo data or the data processed and cached locally.
+#'
+#' @return None
+#'
+#' @examples
+#' runApplication()
+#'
+#' @export
+runApplication <- function()
+{
+  appDir <- system.file("application", package = "rnightlights")
+  if (appDir == "")
+  {
+    stop("Could not find application directory. Try re-installing `rnightlights`.", call. = FALSE)
+  }
+
+  shiny::runApp(appDir, display.mode = "normal")
+}
+
+######################## setupCacheRootPath ###################################
+
+#' @RdocDefault setupCacheRootPath
+#'
+#' @title "Interactively offers the user to set up the default root path"
+#'
+#' \description{
+#'  @get "title".
+#' }
+#'
+#' @synopsis
+#'
+#' \arguments{
+#'   \item{defaultPath}{Default root path to set.}
+#'   \item{...}{Not used.}
+#' }
+#'
+#' \value{
+#'   Returns (invisibly) the root path,
+#'   or @NULL if running a non-interactive session.
+#' }
+#'
+#' \details{
+#'   If the cache root path is already set, it is used and nothing is done.
+#'   If the "default" root path (\code{defaultPath}) exists, it is used,
+#'   otherwise, if running interactively, the user is asked to approve
+#'   the usage (and creation) of the default root path.
+#'   In all other cases, the cache root path is set to a session-specific
+#'   temporary directory.
+#' }
+#'
+#' @author
+#'
+#' @seealso{
+#'  Internally, @see "setCacheRootPath" is used to set the cache root path.
+#'  The @see "base::interactive" function is used to test whether \R is
+#'  running interactively or not.
+#' }
+#'
+#' @keyword "programming"
+#' @keyword "IO"
+#' @keyword "internal"
+#' 
+#' @export
+setupCacheRootPath <- function(defaultPath=dirNightlights, ...) 
+{
+  rootPath <- getCacheRootPath(NULL);
+  
+  # If already set, nothing to do.
+  if (!is.null(rootPath)) {
+    return(invisible(rootPath));
+  }
+  
+  # Use a temporary root path...
+  rootPath <- file.path(tempdir(), ".Rcache");
+  
+  # unless the default directory exists, ...
+  if (isDirectory(defaultPath)) {
+    rootPath <- defaultPath;
+  } else if (interactive()) {
+    # or we cn ask the user to confirm the default path...
+    prompt <- "The R.cache package needs to create a directory that will hold cache files.";
+    if (identical(defaultPath, "~/.Rcache/")) {
+      prompt <- c(prompt, "It is convenient to use one in the user's home directory, because it remains also after restarting R.");
+    }
+    prompt <- c(prompt, sprintf("Do you wish to create the '%s' directory? If not, a temporary directory (%s) that is specific to this R session will be used.", defaultPath, rootPath));
+    prompt <- paste(prompt, collapse=" ");
+    tryCatch({
+      ans <- .textPrompt(prompt=prompt, options=c("Y"="yes", "n"="no"));
+      if (ans == "yes") rootPath <- defaultPath;
+    }, condition=function(ex) {});
+  }
+  
+  setCacheRootPath(rootPath);
+  rootPath <- getCacheRootPath();
+  
+  invisible(rootPath);
+} # setupCacheRootPath()
