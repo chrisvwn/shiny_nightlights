@@ -5,31 +5,36 @@
 # http://shiny.rstudio.com
 #
 
-if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+# if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
+# 
+# pacman::p_load(shiny, shinydashboard, plotly)
+# 
+# pacman::p_load_gh("rstudio/leaflet", "cloudyr/aws.s3") #get the github version of leaflet
+# 
+# suppressMessages(library(shiny))
+# 
+# suppressMessages(library(shinydashboard))
+# 
+# suppressMessages(library(leaflet))
+# 
+# suppressMessages(library(plotly))
+# 
+# suppressMessages(library(aws.s3))
 
-pacman::p_load(shiny, shinydashboard, plotly)
+#suppressMessages(source("nightlights.R"))
 
-pacman::p_load_gh("rstudio/leaflet", "cloudyr/aws.s3") #get the github version of leaflet
+#source("nightlights.R")
+library(rnightlights)
 
-suppressMessages(library(shiny))
+filenames <- list.files(paste0(getwd(),"/",rnightlights::pkg_options("dirNlData")))
 
-suppressMessages(library(shinydashboard))
-
-suppressMessages(library(leaflet))
-
-suppressMessages(source("nightlights.R"))
-
-suppressMessages(library(plotly))
-
-suppressMessages(library(aws.s3))
-
-filenames<-list.files(dirNlData)
+print(paste0(getwd(),"/",rnightlights::pkg_options("dirNlData")))
 
 ctryCodesWithData <- substr(filenames, 1, 3)
 
 ctryCodeNames <- lapply(ctryCodesWithData, function(x) ctryCodeToNAME(x))
 
-ctryCodesWithData <- setNames(ctryCodesWithData, ctryCodeNames)
+ctryCodesWithData <- stats::setNames(ctryCodesWithData, ctryCodeNames)
 
 #allCtryCodes <- getAllNlCtryCodes()
 alignCenter <- function(el) {
@@ -39,114 +44,114 @@ alignCenter <- function(el) {
 }
 
 #shinyUI(
-  dashboardPage(
+  shinydashboard::dashboardPage(
 
     # Application title
-    dashboardHeader(title="Nightlights"),
+    shinydashboard::dashboardHeader(title="Nightlights"),
   
     # Sidebar with a slider input for number of bins
-    dashboardSidebar(
-      sidebarMenu(
+    shinydashboard::dashboardSidebar(
+      shinydashboard::sidebarMenu(
       
-        menuItem("inputs", selected = TRUE,
+        shinydashboard::menuItem("inputs", selected = TRUE,
                  
-                 selectizeInput(inputId = "countries",
+                 shiny::selectizeInput(inputId = "countries",
                                 label = "Select Country(ies)",
                                 choices = ctryCodesWithData,
                                 multiple = TRUE
                  ),
                  
-                 uiOutput(outputId = "intraCountry"),
+                 shiny::uiOutput(outputId = "intraCountry"),
                  
-                 uiOutput("intraCountry1"),
+                 shiny::uiOutput("intraCountry1"),
 
-                 actionButton("btnGo", "Go"),
+                 shiny::actionButton("btnGo", "Go"),
 
 #                 actionButton("btnIntraCtry", "Done"),
                  
-                 menuItem(text = "options", tabName = "plots",
+                 shinydashboard::menuItem(text = "options", tabName = "plots",
 
-                          radioButtons(inputId = "graphType",
+                          shiny::radioButtons(inputId = "graphType",
                                        label = "Graph type",
                                        choices = c("line", "boxplot", "histogram", "point"),
                                        selected = "line",
                                        inline = T
                           ),
                           
-                          checkboxGroupInput(inputId = "scale",
+                          shiny::checkboxGroupInput(inputId = "scale",
                                         label = "Scale",
                                         choices = c("norm_area", "scale_x_log", "scale_y_log")
                           )
                 )
         ),
         
-        menuItem("plots", tabName = "plots"),
+        shinydashboard::menuItem("plots", tabName = "plots"),
         
-        menuItem("maps", tabName = "maps"),
+        shinydashboard::menuItem("maps", tabName = "maps"),
         
-        menuItem("stats", tabName = "stats"),
+        shinydashboard::menuItem("stats", tabName = "stats"),
         
-        menuItem("models", tabName = "models"),
+        shinydashboard::menuItem("models", tabName = "models"),
         
-        menuItem("data", tabName = "data")
+        shinydashboard::menuItem("data", tabName = "data")
         )
       ),
 
       # body
-      dashboardBody(
-        tabItems(
-          tabItem(tabName = "plots",
-                   plotlyOutput(outputId = "plotNightLights"),
+      shinydashboard::dashboardBody(
+        shinydashboard::tabItems(
+          shinydashboard::tabItem(tabName = "plots",
+                   plotly::plotlyOutput(outputId = "plotNightLights"),
                    
-                   uiOutput("sliderNlYearMonthRange")
+                   shiny::uiOutput("sliderNlYearMonthRange")
                    ),
 
-          tabItem(tabName = "maps",
+          shinydashboard::tabItem(tabName = "maps",
                   tags$style(type = "text/css", "#map {height: calc(100vh - 80px) !important;}"),
-                  leafletOutput("map"),
+                  leaflet::leafletOutput("map"),
                   
-                  uiOutput("sliderNlYearMonth")
+                  shiny::uiOutput("sliderNlYearMonth")
                   
 #                   actionButton(inputId="drawMap",
 #                                label = "Draw Map")
                   ),
 
-          tabItem(tabName = "stats",
-                   fluidRow(
-                     box(title = "Annual Trends", 
-                         plotlyOutput("plotYearly")),
+          shinydashboard::tabItem(tabName = "stats",
+                   shiny::fluidRow(
+                     shinydashboard::box(title = "Annual Trends", 
+                         plotly::plotlyOutput("plotYearly")),
                      
-                     tabBox(
-                       tabPanel(title = "plotPointsCluster",
-                                plotlyOutput("plotPointsCluster")
+                     shinydashboard::tabBox(
+                       shiny::tabPanel(title = "plotPointsCluster",
+                                plotly::plotlyOutput("plotPointsCluster")
                                 ),
                        
-                       tabPanel(title = "plotHCluster",
-                                plotOutput("plotHCluster")
+                       shiny::tabPanel(title = "plotHCluster",
+                                shiny::plotOutput("plotHCluster")
                                 ),
-                       tabPanel(title = "mapHCluster",
-                                leafletOutput("mapHCluster")
+                       shiny::tabPanel(title = "mapHCluster",
+                                leaflet::leafletOutput("mapHCluster")
                        ),
-                       sliderInput("kClusters", "Num Clusters", min=1, max=10, value=2)
+                       shiny::sliderInput("kClusters", "Num Clusters", min=1, max=10, value=2)
                      )
                    ),
                   
-                  fluidRow(
-                    tabBox(
-                      tabPanel(title = "Time Series Decomposed",
-                               plotOutput("plotTSDecomposed")
+                  shiny::fluidRow(
+                    shinydashboard::tabBox(
+                      shiny::tabPanel(title = "Time Series Decomposed",
+                               shiny::plotOutput("plotTSDecomposed")
                       
                       )
                     )
                   )
                   ),
           
-          tabItem(tabName = "models",
-                   textOutput("Models")
+          shinydashboard::tabItem(tabName = "models",
+                   shiny::textOutput("Models")
                    ),
           
-          tabItem(tabName = "Data",
-                   DT::dataTableOutput(outputId = "dataset")
+          shinydashboard::tabItem(tabName = "Data",
+                   dataTableOutput(outputId = "dataset")
                    )
         )
       )
