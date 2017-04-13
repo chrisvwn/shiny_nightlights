@@ -78,14 +78,14 @@ shiny::shinyServer(function(input, output, session){
   #### reactive ctryAdmLevels ####
   
     ctryAdmLevels <- shiny::reactive({
-      base::print(paste0("here: ctryAdmLevels"))
+      print(paste0("here: ctryAdmLevels"))
       
-      if (base::length(input$countries) != 1)
+      if (length(input$countries) != 1)
         return()
 
       temp <- data.table::fread(rnightlights::getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
       
-      cols <- base::names(temp)
+      cols <- names(temp)
       
       cols <- cols[-grep("area_sq_km|NL_", cols)]
     })
@@ -93,7 +93,7 @@ shiny::shinyServer(function(input, output, session){
     #### reactive ctryAdmLevelNames ####
     
     ctryAdmLevelNames <- shiny::reactive({
-      base::print(paste0("here: ctryAdmLevelNames"))
+      print(paste0("here: ctryAdmLevelNames"))
       
       countries <- input$countries
       
@@ -102,10 +102,10 @@ shiny::shinyServer(function(input, output, session){
 
       hdr <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries), nrows = 1, header = T)
       
-      colClasses <- base::names(hdr)
+      colClasses <- names(hdr)
       
-      colClasses[-base::grep("area_sq_km|NL_", colClasses)] <- "character"
-      colClasses[base::grep("area_sq_km|NL_", colClasses)] <- "NULL"
+      colClasses[-grep("area_sq_km|NL_", colClasses)] <- "character"
+      colClasses[grep("area_sq_km|NL_", colClasses)] <- "NULL"
       
       data <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries), colClasses = colClasses, header = T)
     })
@@ -113,37 +113,37 @@ shiny::shinyServer(function(input, output, session){
     #### reactive ctryNlData ####
   
     ctryNlData <- shiny::reactive({
-      base::print(paste0("here: ctryNlData"))
+      print(paste0("here: ctryNlData"))
       input$btnGo
       
       countries <- shiny::isolate(input$countries)
       
-      if (base::length(countries)<1)
+      if (length(countries)<1)
         return()
       
       ctryData <- NULL
       
-      if (base::length(countries) == 1)
+      if (length(countries) == 1)
       {
         ctryData <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries))
       }
-      else if(base::length(countries) > 1) #remove subcountry admin levels
+      else if(length(countries) > 1) #remove subcountry admin levels
       {
         for (ctryCode in countries)
         {
-          base::print(ctryCode)
+          print(ctryCode)
           temp <- data.table::fread(rnightlights::getCtryNlDataFnamePath(ctryCode))
           
-          ctryCols <- base::grep("country_code|area|NL_", base::names(temp))
+          ctryCols <- grep("country_code|area|NL_", names(temp))
           
           temp <- temp[, ctryCols, with=F]
           
-          if (base::is.null(ctryData))
+          if (is.null(ctryData))
           {
             ctryData <- temp
           }else
           {
-            ctryData <- base::merge(ctryData, temp, all=TRUE)
+            ctryData <- merge(ctryData, temp, all=TRUE)
           }
         }
       }
@@ -153,23 +153,23 @@ shiny::shinyServer(function(input, output, session){
     #### reactive ctryNlDataMelted ####
     
     ctryNlDataMelted <- shiny::reactive({
-      base::print(paste0("here: ctryNlDataMelted"))
+      print(paste0("here: ctryNlDataMelted"))
       
-      if(base::is.null(ctryNlData()))
+      if(is.null(ctryNlData()))
         return()
       
       ctryData <- ctryNlData()
       
-      meltMeasureVars <- base::names(ctryData)[base::grep("NL_", base::names(ctryData))]
+      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
       
-      meltVarNames <- base::gsub("[^[:digit:]]", "", meltMeasureVars)
+      meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
       
       ctryData <- reshape2::melt(ctryData, measure.vars=meltMeasureVars)
       
       # ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
-      ctryData$variable <- base::paste0(gsub("[^[:digit:]]","", ctryData$variable),"01")
+      ctryData$variable <- paste0(gsub("[^[:digit:]]","", ctryData$variable),"01")
       
-      ctryData$variable <- base::as.Date(ctryData$variable, format="%Y%m%d")
+      ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
       
       return(ctryData)
     })
@@ -177,14 +177,14 @@ shiny::shinyServer(function(input, output, session){
     #### reactiveValues values ####
     
     values <- shiny::reactiveValues(
-      a=base::print(base::paste0("here: lastUpdated")),
+      a=print(paste0("here: lastUpdated")),
       lastUpdated = NULL
     )
     
     #### observe lastUpdated ####
     
     observe({
-      base::lapply(names(input), function(x) {
+      lapply(names(input), function(x) {
         shiny::observe({
           input[[x]]
           values$lastUpdated <- x
@@ -193,7 +193,7 @@ shiny::shinyServer(function(input, output, session){
     })
     
     output$intraCountry1 <- shiny::renderUI({
-      if(base::length(input$countries) != 1)
+      if(length(input$countries) != 1)
         return()
       
       shiny::radioButtons(inputId = "admLevel", 
@@ -206,22 +206,22 @@ shiny::shinyServer(function(input, output, session){
     
     output$intraCountry <- shiny::renderUI({
       
-      base::print("here: renderUI intracountry")
+      print("here: renderUI intracountry")
       countries <- input$countries
       
-      if(base::length(countries) != 1)
+      if(length(countries) != 1)
         return()
       
       ctryAdmLevels <- ctryAdmLevels()
       
       ctryAdmLevelNames <- ctryAdmLevelNames()
       
-      if (base::length(ctryAdmLevelNames)>1)
+      if (length(ctryAdmLevelNames)>1)
         elems <- lapply(2:length(ctryAdmLevels), function(lvlIdx){
           
           lvl <- ctryAdmLevels[lvlIdx]
           
-          lvlSelect <- base::unique(ctryAdmLevelNames[[ctryAdmLevels[lvlIdx]]])
+          lvlSelect <- unique(ctryAdmLevelNames[[ctryAdmLevels[lvlIdx]]])
           
           #         a <- checkboxInput(inputId = paste0("radioAdm", lvlIdx),
           #                      label = ctryAdmLevels[lvlIdx], 
@@ -249,11 +249,11 @@ shiny::shinyServer(function(input, output, session){
     #### observe selectAdms (intraCountry) ####
     
     shiny::observe({
-      base::print(paste0("here: observe selectAdms"))
+      print(paste0("here: observe selectAdms"))
 
-      admLvlCtrlsNames <- base::names(input)
+      admLvlCtrlsNames <- names(input)
       
-      x <- admLvlCtrlsNames[base::grep("selectAdm", admLvlCtrlsNames)]
+      x <- admLvlCtrlsNames[grep("selectAdm", admLvlCtrlsNames)]
       
       if(length(x)==0)
         return()
@@ -262,10 +262,10 @@ shiny::shinyServer(function(input, output, session){
       lowestSelected <- ""
       for (i in x)
       {
-        if (base::length(input[[i]]) > 0)
+        if (length(input[[i]]) > 0)
         {
           admSelected <- TRUE
-          lowestSelected <- base::gsub("[^[:digit:]]","",i)
+          lowestSelected <- gsub("[^[:digit:]]","",i)
         }
       }
       
@@ -278,15 +278,15 @@ shiny::shinyServer(function(input, output, session){
       
       ctryAdmLevels <- ctryAdmLevels()
       
-      lvlNum <- base::gsub("[^[:digit:]]", "",values$lastUpdated) #gsub("[^[:digit:]]", "", x)
+      lvlNum <- gsub("[^[:digit:]]", "",values$lastUpdated) #gsub("[^[:digit:]]", "", x)
       
       if(lvlNum=="")
         return()
       
-      base::print(base::paste0("lastupdated:", values$lastUpdated))
+      print(paste0("lastupdated:", values$lastUpdated))
       
-      base::print(base::paste0("x:", x))
-      base::print(base::paste0("lvlnum:", lvlNum))
+      print(paste0("x:", x))
+      print(paste0("lvlnum:", lvlNum))
       
       #set admLevel to match the selectizeInput level
       #if (length(input[[paste0("selectAdm", lvlNum)]]) > 0)
@@ -294,26 +294,26 @@ shiny::shinyServer(function(input, output, session){
       
       multipleSelected <- FALSE
       
-      for (lvlIdx in 2:base::length(ctryAdmLevels))
+      for (lvlIdx in 2:length(ctryAdmLevels))
       {
         lvlSelect <- ""
         top10 <- ""
         
-        if (base::length(input[[base::paste0("selectAdm", lvlIdx)]]) > 1)
+        if (length(input[[paste0("selectAdm", lvlIdx)]]) > 1)
           multipleSelected <- TRUE
         
         if (lvlIdx < lvlNum)
         {
-          base::print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
           
-          if (base::length(input[[paste0("selectAdm", lvlIdx-1)]]) == 1)
+          if (length(input[[paste0("selectAdm", lvlIdx-1)]]) == 1)
           {
-            ctryAdmLevelNamesFilter <- base::subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
           }
           else
           {
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
           }
           #print(paste0("lvlSelect:",lvlSelect))
           
@@ -322,16 +322,16 @@ shiny::shinyServer(function(input, output, session){
           
           #updateCheckboxInput(session, paste0("radioAdm", lvlIdx),value = TRUE)
           
-          shiny::updateSelectInput(session, base::paste0("selectAdm",lvlIdx), choices = lvlSelect, selected = input[[paste0("selectAdm",lvlIdx)]])
+          shiny::updateSelectInput(session, paste0("selectAdm",lvlIdx), choices = lvlSelect, selected = input[[paste0("selectAdm",lvlIdx)]])
         }
         else if(lvlIdx == lvlNum)
         {
-          base::print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
           
-          if (base::length(input[[base::paste0("selectAdm", lvlIdx-1)]]) == 1)
+          if (length(input[[paste0("selectAdm", lvlIdx-1)]]) == 1)
           {
-            ctryAdmLevelNamesFilter <- base::subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[base::paste0("selectAdm", lvlIdx-1)]])
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
             
             #top10 <- if(length(lvlSelect) > 1) lvlSelect[1] else no = lvlSelect
             
@@ -344,35 +344,35 @@ shiny::shinyServer(function(input, output, session){
               shiny::updateSelectizeInput(session, paste0("selectAdm",lvlIdx), choices = lvlSelect, selected = input[[paste0("selectAdm",lvlIdx)]])
           }else
           {
-            shiny::updateSelectizeInput(session, base::paste0("selectAdm", lvlIdx), choices = NULL, selected = NULL)
+            shiny::updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = NULL, selected = NULL)
           }
         }
         else
         {
-          base::print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
+          print(paste0("lvlIdx:",lvlIdx,"lvlNum:",lvlNum))
           
           if (multipleSelected)
           {
-            shiny::updateSelectizeInput(session, base::paste0("selectAdm", lvlIdx), choices = "", selected = NULL)
+            shiny::updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = "", selected = NULL)
             next()
           }
           
-          if(base::length(input[[base::paste0("selectAdm",lvlIdx-1)]]) == 1)
+          if(length(input[[paste0("selectAdm",lvlIdx-1)]]) == 1)
           {
-            ctryAdmLevelNamesFilter <- base::subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[base::paste0("selectAdm", lvlIdx-1)]])
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            ctryAdmLevelNamesFilter <- subset(ctryAdmLevelNamesFilter,ctryAdmLevelNamesFilter[[ctryAdmLevels[[lvlIdx-1]]]]==input[[paste0("selectAdm", lvlIdx-1)]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
             #updateCheckboxInput(session, paste0("radioAdm", lvlIdx),value = FALSE)
 
             shiny::updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
           }
-          else if(base::length(input[[paste0("selectAdm",lvlIdx-1)]]) == 0 && length(input[[paste0("selectAdm", lvlNum)]])==1)
+          else if(length(input[[paste0("selectAdm",lvlIdx-1)]]) == 0 && length(input[[paste0("selectAdm", lvlNum)]])==1)
           {
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
             shiny::updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
           }
           else
           {
-            lvlSelect <- base::unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
+            lvlSelect <- unique(ctryAdmLevelNamesFilter[[ctryAdmLevels[lvlIdx]]])
             
             shiny::updateSelectizeInput(session, paste0("selectAdm", lvlIdx), choices = lvlSelect, selected = NULL)
           }
@@ -386,10 +386,10 @@ shiny::shinyServer(function(input, output, session){
     #### sliderNlYearMonthRange ####
     
     output$sliderNlYearMonthRange <- shiny::renderUI({
-      base::print(paste0("here: sliderNlYearMonthRange"))
+      print(paste0("here: sliderNlYearMonthRange"))
       ctryData <- ctryNlDataMelted()
       
-      if (base::is.null(ctryData))
+      if (is.null(ctryData))
       {
         shiny::sliderInput(inputId = "nlYearMonthRange",
                     label = "Time",
@@ -402,8 +402,8 @@ shiny::shinyServer(function(input, output, session){
       }
       else
       {
-        minDate <- base::min(ctryData$variable)
-        maxDate <- base::max(ctryData$variable)
+        minDate <- min(ctryData$variable)
+        maxDate <- max(ctryData$variable)
                            
         
         
@@ -423,7 +423,7 @@ shiny::shinyServer(function(input, output, session){
     #### sliderNlYearMonth ####
     
     output$sliderNlYearMonth <- shiny::renderUI({
-      base::print(paste0("here: sliderNlYearMonth"))
+      print(paste0("here: sliderNlYearMonth"))
       
       ctryData <- ctryNlDataMelted()
       
@@ -440,8 +440,8 @@ shiny::shinyServer(function(input, output, session){
       }
       else
       {
-        minDate <- base::min(ctryData$variable)
-        maxDate <- base::max(ctryData$variable)
+        minDate <- min(ctryData$variable)
+        maxDate <- max(ctryData$variable)
         
         shiny::sliderInput(inputId = "nlYearMonth",
                     label = "Time",
@@ -457,12 +457,12 @@ shiny::shinyServer(function(input, output, session){
     })
     ####reactive hcluster####
     hCluster <- shiny::reactive({
-      base::print(paste0("here: reactive hCluster"))
+      print(paste0("here: reactive hCluster"))
       input$btnGo
       
       countries <- shiny::isolate(input$countries)
       
-      if (base::is.null(countries))
+      if (is.null(countries))
         return()
       
       scale <- input$scale
@@ -487,7 +487,7 @@ shiny::shinyServer(function(input, output, session){
       #aggMeltCtryData <- aggregate(mean(value), by=list(eval(admLevel)+variable), data=meltCtryData, mean)
       aggMeltCtryData <- stats::setNames(meltCtryData[,list(mean(value, na.rm = TRUE)), by = list(meltCtryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
       
-      dcastFormula <- base::paste(paste(admLevel, collapse = " + "), "~", paste("variable", collapse = " + "))
+      dcastFormula <- paste(paste(admLevel, collapse = " + "), "~", paste("variable", collapse = " + "))
       
       unmeltCtryData <- data.table::dcast(aggMeltCtryData, dcastFormula, value.var='value', aggregate='mean')
       
@@ -502,7 +502,7 @@ shiny::shinyServer(function(input, output, session){
     })
     
     output$plotHCluster <- shiny::renderPlot({
-      base::print(paste0("here: plotHCluster"))
+      print(paste0("here: plotHCluster"))
       
       clusts <- hCluster()
       numClusters <- input$kClusters
@@ -529,13 +529,13 @@ shiny::shinyServer(function(input, output, session){
     ####renderPlotly plotCluster####
     
     output$plotPointsCluster <- plotly::renderPlotly({
-      base::print(paste0("here: plotPointsCluster"))
+      print(paste0("here: plotPointsCluster"))
       
       input$btnGo
       
       countries <- shiny::isolate(input$countries)
       
-      if(base::length(countries) < 1)
+      if(length(countries) < 1)
         return()
       
       clusts <- hCluster()
@@ -573,7 +573,7 @@ shiny::shinyServer(function(input, output, session){
     })
     
     output$mapHCluster <- leaflet::renderLeaflet({
-      base::print(paste0("here: draw mapHCluster"))
+      print(paste0("here: draw mapHCluster"))
       # Use leaflet() here, and only include aspects of the map that
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).
@@ -586,10 +586,10 @@ shiny::shinyServer(function(input, output, session){
       numClusters <- input$kClusters
       
       shiny::isolate({      
-        if (base::is.null(countries))
+        if (is.null(countries))
           return()
         
-        if (base::length(countries) != 1)
+        if (length(countries) != 1)
         {
           renderText("Please select only one country/region")
           return()
@@ -619,7 +619,7 @@ shiny::shinyServer(function(input, output, session){
         
         lvlCtryData <- stats::setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]])], c(admLevel, "value"))
         
-        lvlCtryData[["rank"]] <- base::with(lvlCtryData, rank(-value, ties.method = 'first'))
+        lvlCtryData[["rank"]] <- with(lvlCtryData, rank(-value, ties.method = 'first'))
         
         cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
         
@@ -630,10 +630,10 @@ shiny::shinyServer(function(input, output, session){
         
         ctryPoly <- sp::spTransform(ctryPoly, wgs84)
         
-        mapLabels <- base::sprintf(
-          base::paste0("%s:%s", "<br/>Cluster: %s", "<br/>Rad:%s", "<br/>Rank: %s/%s"),
-          admLevel, lvlCtryData[[1]], cutClusts, base::format(lvlCtryData[[2]],scientific = T,digits = 2), lvlCtryData[["rank"]], nrow(lvlCtryData)
-        ) %>% base::lapply(htmltools::HTML)
+        mapLabels <- sprintf(
+          paste0("%s:%s", "<br/>Cluster: %s", "<br/>Rad:%s", "<br/>Rank: %s/%s"),
+          admLevel, lvlCtryData[[1]], cutClusts, format(lvlCtryData[[2]],scientific = T,digits = 2), lvlCtryData[["rank"]], nrow(lvlCtryData)
+        ) %>% lapply(htmltools::HTML)
         
         map <- map %>% leaflet::addPolygons(
           data = ctryPoly,
@@ -679,12 +679,12 @@ shiny::shinyServer(function(input, output, session){
     ####renderPlotly plotTSDecomposed####
     
     output$plotTSDecomposed <- shiny::renderPlot({
-      base::print(paste0("here: plotTSDecomposed"))
+      print(paste0("here: plotTSDecomposed"))
       input$btnGo
       
       countries <- shiny::isolate(input$countries)
       
-      if(base::length(countries) < 1)
+      if(length(countries) < 1)
         return()
       
       admLevel <- ctryAdmLevels()[1]
@@ -705,10 +705,10 @@ shiny::shinyServer(function(input, output, session){
         #ctryAvg <- aggregate(value ~ admLevel, data=meltCtryData, mean)
         ctryAvg <- stats::setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]], variable)], c(admLevel, "variable", "value"))
         
-        startYear <- lubridate::year(base::min(ctryAvg$variable))
-        startMonth <- lubridate::month(base::min(ctryAvg$variable))
-        endYear <- lubridate::year(base::max(ctryAvg$variable))
-        endMonth <- lubridate::month(base::max(ctryAvg$variable))
+        startYear <- lubridate::year(min(ctryAvg$variable))
+        startMonth <- lubridate::month(min(ctryAvg$variable))
+        endYear <- lubridate::year(max(ctryAvg$variable))
+        endMonth <- lubridate::month(max(ctryAvg$variable))
         
         ctryDataTS <- stats::ts(ctryAvg$value, start = c(startYear,startMonth), end = c(endYear,endMonth), frequency = 12)
 
@@ -740,9 +740,9 @@ shiny::shinyServer(function(input, output, session){
         if (is.null(countries) || is.null(ctryData))
           return()
         
-        admLvlCtrlNames <- base::names(input)
+        admLvlCtrlNames <- names(input)
         
-        x <- admLvlCtrlNames[base::grep("selectAdm", admLvlCtrlNames)]
+        x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
 
         admLvlNums <- NULL
         for (i in x)
@@ -756,31 +756,31 @@ shiny::shinyServer(function(input, output, session){
           #if (admLvlNum=="" && length(countries)>0)
           #  return()
           
-          admLvlNums <- base::as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+          admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
           
           if (length(admLvlNums)==0)
             admLvlNums <- 1
           
           ctryAdmLevels <- ctryAdmLevels()
-          admLevel <- ctryAdmLevels[base::as.numeric(last(admLvlNums))]
+          admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
           
-          print(base::paste0("admLevel:", admLevel))
+          print(paste0("admLevel:", admLevel))
           
           if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
             admLevel <- "country_code"
           
-          ctryData <- base::subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
+          ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
           
           for (lvl in admLvlNums)
           {
             if (lvl == 1)
               next()
             
-            base::print(base::paste0("lvl:",lvl))
+            print(paste0("lvl:",lvl))
             
-            if (base::length(input[[x[lvl-1]]])>0)
+            if (length(input[[x[lvl-1]]])>0)
             {
-              ctryData <- base::subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
+              ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
             }
           }
           
@@ -788,14 +788,14 @@ shiny::shinyServer(function(input, output, session){
           
           ctryData$month <- lubridate::month(ctryData$variable)
           
-          base::print(paste0("ctrydata nrow:", nrow(ctryData)))
+          print(paste0("ctrydata nrow:", nrow(ctryData)))
           
           if ("norm_area" %in% scale)
             ctryData$value <- (ctryData$value)/ctryData$area_sq_km
           
           if (graphType == "boxplot")
           {
-            if (base::length(countries)==1)
+            if (length(countries)==1)
             {
               g <- ggplot2::ggplot(data=ctryData, aes(x=factor(variable), y=value, col=ctryData[[admLevel]])) + ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
             }
@@ -808,7 +808,7 @@ shiny::shinyServer(function(input, output, session){
           }
           else if (graphType == "line")
           {
-            if (base::length(countries)==1)
+            if (length(countries)==1)
             {
               #switched to data.table aggregation
               #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
@@ -859,7 +859,7 @@ shiny::shinyServer(function(input, output, session){
       
       countries <- shiny::isolate(input$countries)
       
-      if (base::is.null(countries))
+      if (is.null(countries))
         return()
       
       scale <- input$scale
@@ -871,52 +871,52 @@ shiny::shinyServer(function(input, output, session){
       if (is.null(countries) || is.null(ctryData))
         return()
             
-      admLvlCtrlNames <- base::names(input)
+      admLvlCtrlNames <- names(input)
       
-      x <- admLvlCtrlNames[base::grep("selectAdm", admLvlCtrlNames)]
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
       
       shiny::isolate({
         admLvlNums <- NULL
         for (i in x)
-          if(base::length(input[[i]])>0)
+          if(length(input[[i]])>0)
             admLvlNums <- c(admLvlNums, i)
           
           
-        base::print(base::paste0("x", x))
-        base::print(base::paste0("admlvlnums:", admLvlNums))
+        print(paste0("x", x))
+        print(paste0("admlvlnums:", admLvlNums))
         
         #if (admLvlNum=="" && length(countries)>0)
         #  return()
         
-        admLvlNums <- base::as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+        admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
         
         if (length(admLvlNums)==0)
           admLvlNums <- 1
         
         ctryAdmLevels <- ctryAdmLevels()
-        admLevel <- ctryAdmLevels[base::as.numeric(last(admLvlNums))]
+        admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
         
-        base::print(base::paste0("admLevel:", admLevel))
+        print(paste0("admLevel:", admLevel))
         
-        if (!base::exists("admLevel") || base::is.null(admLevel) || base::length(admLevel)==0)
+        if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
           admLevel <- "country_code"
           
-      ctryData <- base::subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
+      ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
       
       for (lvl in admLvlNums)
       {
         if (lvl == 1)
           next()
         
-        base::print(paste0("lvl:",lvl))
+        print(paste0("lvl:",lvl))
         
-        if (base::length(input[[x[lvl-1]]])>0)
+        if (length(input[[x[lvl-1]]])>0)
         {
-          ctryData <- base::subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
+          ctryData <- subset(ctryData, ctryData[[ctryAdmLevels[lvl]]] %in% input[[x[lvl-1]]])
         }
       }
       
-      base::print(paste0("ctrydata nrow:", nrow(ctryData)))
+      print(paste0("ctrydata nrow:", nrow(ctryData)))
       
       if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value)/ctryData$area_sq_km
@@ -936,7 +936,7 @@ shiny::shinyServer(function(input, output, session){
       }
       else if (graphType == "line")
       {
-        if (base::length(countries)==1)
+        if (length(countries)==1)
         {
           #switched to data.table aggregation
           #ctryData <- setNames(aggregate(ctryData$value, by=list(ctryData[,admLevel], ctryData[,"variable"]), mean, na.rm=T), c(admLevel, "variable", "value"))
@@ -959,7 +959,7 @@ shiny::shinyServer(function(input, output, session){
         
         g <- ggplot2::ggplot(data=ctryData, aes(x=value))
         
-        g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country_code, ncol = base::length(countries)) # Overlay with transparent density plot
+        g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
 
       }
 
@@ -970,9 +970,9 @@ shiny::shinyServer(function(input, output, session){
         g <- g + ggplot2::scale_x_log10()
       
       if ("norm_area" %in% scale)
-        g <- g + ggplot2::labs(title="Nightlight Radiances", x = "Month", y = base::expression(paste("Avg Rad W" %.% "Sr" ^{-1} %.% "cm" ^{-2}, "per Km" ^{2})))
+        g <- g + ggplot2::labs(title="Nightlight Radiances", x = "Month", y = expression(paste("Avg Rad W" %.% "Sr" ^{-1} %.% "cm" ^{-2}, "per Km" ^{2})))
       else
-        g <- g + ggplot2::labs(title="Nightlight Radiances", x = "Month", y = base::expression(~Total~Rad~W %.% Sr^{-1}%.%cm^{-2}))
+        g <- g + ggplot2::labs(title="Nightlight Radiances", x = "Month", y = expression(~Total~Rad~W %.% Sr^{-1}%.%cm^{-2}))
       
       plotly::ggplotly(g)
       
@@ -980,7 +980,7 @@ shiny::shinyServer(function(input, output, session){
     })
     
     output$dataset <- renderDataTable({
-      if(base::is.null(ctryNlData()))
+      if(is.null(ctryNlData()))
         return("NO DATA")
       
       ctryNlData()
@@ -1031,7 +1031,7 @@ shiny::shinyServer(function(input, output, session){
     
 
     output$map <- leaflet::renderLeaflet({
-      base::print(paste0("here: draw leaflet map"))
+      print(paste0("here: draw leaflet map"))
       # Use leaflet() here, and only include aspects of the map that
       # won't need to change dynamically (at least, not unless the
       # entire map is being torn down and recreated).
@@ -1045,18 +1045,18 @@ shiny::shinyServer(function(input, output, session){
       scale <- input$scale
       
       shiny::isolate({      
-      if (base::is.null(countries) || base::is.null(nlYearMonth) || base::is.null(admLevel))
+      if (is.null(countries) || is.null(nlYearMonth) || is.null(admLevel))
         return()
       
-      if (base::length(countries) != 1)
+      if (length(countries) != 1)
       {
         shiny::renderText("Please select only one country/region")
         return()
       }
       
-      admLvlCtrlNames <- base::names(input)
+      admLvlCtrlNames <- names(input)
       
-      x <- admLvlCtrlNames[base::grep("selectAdm", admLvlCtrlNames)]
+      x <- admLvlCtrlNames[grep("selectAdm", admLvlCtrlNames)]
       
       admLvlNums <- NULL
       for (i in x)
@@ -1064,31 +1064,31 @@ shiny::shinyServer(function(input, output, session){
           admLvlNums <- c(admLvlNums, i)
         
         
-      base::print(base::paste0("x", x))
-      base::print(base::paste0("admlvlnums:", admLvlNums))
+      print(paste0("x", x))
+      print(paste0("admlvlnums:", admLvlNums))
 
-      admLvlNums <- base::as.numeric(gsub("[^[:digit:]]","",admLvlNums))
+      admLvlNums <- as.numeric(gsub("[^[:digit:]]","",admLvlNums))
       
-      base::print(base::paste0("admlvlNums:", admLvlNums))
+      print(paste0("admlvlNums:", admLvlNums))
 
       #get the selected admLevel and convert to lyrnum
       ctryAdmLevels <- ctryAdmLevels()
 
-      lyrNum <- base::which(ctryAdmLevels == admLevel)
+      lyrNum <- which(ctryAdmLevels == admLevel)
       
       #line weight increases. max=4 min=1
-      deltaLineWt <- (4 - 1) / base::as.numeric(lyrNum)
+      deltaLineWt <- (4 - 1) / as.numeric(lyrNum)
 
-      nlYm <- base::as.Date(nlYearMonth[1], "%Y%m%d")
+      nlYm <- as.Date(nlYearMonth[1], "%Y%m%d")
 
       ctryData <- ctryNlDataMelted()
       
-      if (base::is.null(ctryData))
+      if (is.null(ctryData))
         return()
       
       #get our data ready to match with polygons
       #subset data based on level selections
-      ctryData <- base::subset(ctryData, year(variable) == year(nlYm) & month(variable) == month(nlYm))
+      ctryData <- subset(ctryData, year(variable) == year(nlYm) & month(variable) == month(nlYm))
 
       #only used when we want to show only the selected features
       #for now we want all features shown and then highlight the selected features
@@ -1108,13 +1108,13 @@ shiny::shinyServer(function(input, output, session){
       if ("norm_area" %in% scale)
         ctryData$value <- (ctryData$value)/ctryData$area_sq_km
 
-      base::print(base::paste0("ctrydata nrow:", base::nrow(ctryData)))
+      print(paste0("ctrydata nrow:", nrow(ctryData)))
       
-      base::print("drawing leaflet")
+      print("drawing leaflet")
       
-      ctryYearMonth <- base::paste0(countries, "_", nlYm)
+      ctryYearMonth <- paste0(countries, "_", nlYm)
       
-      base::message(ctryYearMonth)
+      message(ctryYearMonth)
       
       ctryPoly0 <- rgdal::readOGR(rnightlights::getPolyFnamePath(countries), rnightlights::getCtryShpLyrName(countries,0))
       
@@ -1155,12 +1155,12 @@ shiny::shinyServer(function(input, output, session){
           #lvlCtryData <- as.data.frame(lvlCtryData)
           
           #rank the data
-          varname <- base::paste0('rank',iterAdmLevel)
-          lvlCtryData[[varname]] <- base::with(lvlCtryData, rank(-value, ties.method = 'first'))
+          varname <- paste0('rank',iterAdmLevel)
+          lvlCtryData[[varname]] <- with(lvlCtryData, rank(-value, ties.method = 'first'))
           
           #palette deciles for the layer
-          bins <- base::unique(stats::quantile(lvlCtryData$value, seq(0,1,0.1), na.rm=T))
-          brewerPal <- base::rev(RColorBrewer::brewer.pal(10, "YlOrRd"))
+          bins <- unique(stats::quantile(lvlCtryData$value, seq(0,1,0.1), na.rm=T))
+          brewerPal <- rev(RColorBrewer::brewer.pal(10, "YlOrRd"))
           pal <- leaflet::colorBin(brewerPal, domain = lvlCtryData$value, na.color = "grey", bins=bins)
           
           #turn off previous layer? No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
@@ -1170,19 +1170,19 @@ shiny::shinyServer(function(input, output, session){
           
           if (length(admLvlNums) > 0)
           if((iterAdmLevel) == data.table::last(admLvlNums)) #iterAdmLevel+1 %in% admLvlNums)
-            selected <- base::which(ctryPoly@data[[paste0("NAME_",iterAdmLevel-1)]] %in% input[[paste0("selectAdm", iterAdmLevel)]])
+            selected <- which(ctryPoly@data[[paste0("NAME_",iterAdmLevel-1)]] %in% input[[paste0("selectAdm", iterAdmLevel)]])
           else
             selected <- c()
           
 
-          mapLabels <- base::sprintf(
-            base::paste0("<strong>%s:%s</strong>", "<br/>Area: %s km<superscript>2</superscript>","<br/>Date: %s", ifelse("norm_area" %in% scale, "<br/>Rad: %s /sq.km", "<br/>Rad: %s"), "<br/>Rank: %s/%s"),
-            ctryAdmLevels[iterAdmLevel], lvlCtryData[[ctryAdmLevels[iterAdmLevel]]], base::format(lvlCtryData[["area_sq_km"]],scientific = T,digits = 2), lvlCtryData[["variable"]], base::format(lvlCtryData[["value"]],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], base::nrow(lvlCtryData)
-          ) %>% base::lapply(htmltools::HTML)
+          mapLabels <- sprintf(
+            paste0("<strong>%s:%s</strong>", "<br/>Area: %s km<superscript>2</superscript>","<br/>Date: %s", ifelse("norm_area" %in% scale, "<br/>Rad: %s /sq.km", "<br/>Rad: %s"), "<br/>Rank: %s/%s"),
+            ctryAdmLevels[iterAdmLevel], lvlCtryData[[ctryAdmLevels[iterAdmLevel]]], format(lvlCtryData[["area_sq_km"]],scientific = T,digits = 2), lvlCtryData[["variable"]], format(lvlCtryData[["value"]],scientific = T,digits = 2),  lvlCtryData[[paste0("rank",iterAdmLevel)]], nrow(lvlCtryData)
+          ) %>% lapply(htmltools::HTML)
 
           map <- map %>% leaflet::addPolygons(
             data = ctryPoly,
-            layerId = base::as.character(ctryPoly@data[,paste0('NAME_',iterAdmLevel-1)]),
+            layerId = as.character(ctryPoly@data[,paste0('NAME_',iterAdmLevel-1)]),
             fill = TRUE,
             fillColor = ~pal(lvlCtryData[["value"]]),
             fillOpacity = 0.9,
@@ -1212,7 +1212,7 @@ shiny::shinyServer(function(input, output, session){
           {
               map <- map %>% leaflet::addPolygons(
                 data = ctryPoly[iterPoly,],
-                layerId = base::paste0(base::as.character(ctryPoly@data[iterPoly, base::paste0('NAME_',iterAdmLevel-1)]),"_selected"),
+                layerId = paste0(as.character(ctryPoly@data[iterPoly, paste0('NAME_',iterAdmLevel-1)]),"_selected"),
                 fill = TRUE,
                 fillColor = ~pal(lvlCtryData[["value"]][iterPoly]),
                 fillOpacity = 0.9,
@@ -1238,12 +1238,12 @@ shiny::shinyServer(function(input, output, session){
                 )
               
               e <- raster::extent(ctryPoly[iterPoly,])
-              if (base::exists("mapExtent"))
+              if (exists("mapExtent"))
               {
-                mapExtent@xmin <- base::min(mapExtent@xmin, e@xmin)
-                mapExtent@ymin <- base::min(mapExtent@ymin, e@ymin)
-                mapExtent@xmax <- base::max(mapExtent@xmax, e@xmax)
-                mapExtent@ymax <- base::max(mapExtent@ymax, e@ymax)
+                mapExtent@xmin <- min(mapExtent@xmin, e@xmin)
+                mapExtent@ymin <- min(mapExtent@ymin, e@ymin)
+                mapExtent@xmax <- max(mapExtent@xmax, e@xmax)
+                mapExtent@ymax <- max(mapExtent@ymax, e@ymax)
               }
               else
               {
@@ -1257,7 +1257,7 @@ shiny::shinyServer(function(input, output, session){
       if (admLevel != "country_code")
         map <- map %>% leaflet::addLegend(position = "bottomright", 
                                  pal = pal, 
-                                 values = base::format(ctryData$value, scientific = T),
+                                 values = format(ctryData$value, scientific = T),
                                  labels = stats::quantile(ctryData$value, seq(0,1,0.1), na.rm=T),
                                  #title = "Nightlight percentiles",
                                  title = ifelse("norm_area" %in% scale, "Rad/sq. Km.", "Total Rad"),
