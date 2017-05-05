@@ -57,6 +57,7 @@ shpTopLyrName <- "adm0"
 #can we use only one or does it depend on the shapefile loaded?
 wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 ntLtsIndexUrlViirs = "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
+stats <- c("sum", "mean", "var")
 
 ######################## RNIGHTLIGHTSOPTIONS ###################################
 
@@ -92,7 +93,7 @@ RNIGHTLIGHTSOPTIONS <- settings::options_manager(
   
   omitCountries = "missing",
   
-  deleteTiles = TRUE,
+  deleteTiles = FALSE,
   
   .allowed = list(
     cropMaskMethod = settings::inlist("gdal","rast"),
@@ -1077,7 +1078,7 @@ getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("d
 #'   print("download successful")
 #'
 #' @export
-getNtLtsViirs <- function(nlYear, nlMonth, tileNum)
+getNtLtsViirs <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("downloadMethod"))
 {
   nlType <- "VIIRS"
 
@@ -1929,7 +1930,7 @@ ctryShpLyrName2Num <- function(layerName)
 #' @examples
 #' processNLCountryVIIRS(c("KEN"), c("201204"))
 #'
-processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
+processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast", extractMethod="rast")
 {
   if(missing(ctryCode) || class(ctryCode) != "character" || is.null(ctryCode) || ctryCode == "")
     stop("ctryCode missing")
@@ -2111,11 +2112,12 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast")
   message("Begin extracting the data from the merged raster ", base::date())
 
   if (extractMethod == "rast")
-    sumAvgRad <- fnSumAvgRadRast(ctryPoly, ctryRastCropped)
+    sumAvgRad <- fnSumAvgRadRast(ctryPoly, ctryRastCropped, stats)
   else if (extractMethod == "gdal")
-    sumAvgRad <- fnSumAvgRadGdal(ctryCode, ctryPoly, nlYearMonth)
+    sumAvgRad <- fnSumAvgRadGdal(ctryCode, ctryPoly, nlYearMonth, stats)
 
-  ctryNlDataDF <- insertNlDataCol(ctryNlDataDF, sumAvgRad, "sum", nlYearMonth, nlType = "VIIRS")
+  for(stat in stats)
+    ctryNlDataDF <- insertNlDataCol(ctryNlDataDF, sumAvgRad[,stat], stat, nlYearMonth, nlType = "VIIRS")
 
   message("DONE processing ", ctryCode, " ", nlYearMonth, " ", base::date())
 
@@ -2405,7 +2407,7 @@ getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
 {
   if (missing("statType") || !is.character(statType) || statType == "" || is.null(statType))
     stop("statType not provided")
-  if (!tolower(statType) %in% c("sum", "mean", "median", "quantile", "min", "max"))
+  if (!validStat(statType))
     stop("Invalid statType")
   
   colName <- "NL_"
@@ -2417,18 +2419,18 @@ getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
   
   colName <- paste0(colName, nlYearMonth, "_")
   
-  colName <- paste0(colName, 
-                    switch(tolower(statType),
-                           sum = "SUM",
-                           mean = "MEAN",
-                           min = "MIN",
-                           max = "MAX"
-                           )
-                    )
-  
+  colName <- paste0(colName, toupper(statType))
+
   return(colName)
 }
 
+validStat <- function(stat)
+{
+  if (!tolower(stat) %in% c("sum", "mean", "median", "min", "max", "var", "sd"))
+    return(FALSE)
+  else
+    return(TRUE)
+}
 ######################## existsCtryNlDataFile ###################################
 
 #' Check if a country's data file exists
@@ -2572,6 +2574,12 @@ getCtryShpLowestLyrName <- function(ctryCode)
 #' @export
 getCtryPolyAdmLevelNames <- function(ctryCode)
 {
+  if(missing(ctryCode))
+    stop("Missing required parameter ctryCode")
+  
+  if(!validCtryCode(ctryCode))
+    stop("Invalid ISO3 ctryCode")
+  
   lowestLayer <- getCtryShpLowestLyrName(ctryCode)
 
   numLayers <- ctryShpLyrName2Num(lowestLayer)
@@ -2592,7 +2600,7 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
       lvlEngName <- as.character(unlist(lyrPoly@data[2,eval(lvlTypeEngName)]))
 
       if ((!is.na(lvlName) && !is.na(lvlEngName)) && lvlName != lvlEngName)
-        lvlName <- paste0(lvlName, "_(", lvlEngName, ")")
+        lvlName <- paste0(lvlEngName, "_(", lvlName, ")")
 
       if (is.na(lvlName))
         lvlName <- "Unknown"
@@ -2605,6 +2613,33 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
   #names(admLevels) <- c("id", "name")
 
   return (admLevels)
+}
+
+######################## validCtryCode ###################################
+
+#' Check if a month number is valid for a given nightlight type
+#'
+#' Check if a month number is valid for a given nightlight type. Note month num is only valid for
+#' "VIIRS" nightlight type
+#'
+#' @param ctryCode the ISO3 country code to validate
+#'
+#' @return TRUE/FALSE
+#'
+#' @examples
+#' validNlCtryCode("KEN")
+#'  #returns TRUE
+#'
+#' validNlCtryCode("UAE")
+#'  #returns FALSE. "United Arab Emirates" ISO3 code = "ARE"
+#'
+#' @export
+validCtryCode <- function(ctryCode)
+{
+  if(is.na(suppressWarnings(ctryCodeToName(ctryCode))))
+    return(FALSE)
+  else
+    return(TRUE)
 }
 
 ######################## dnldCtryPoly ###################################
@@ -2802,7 +2837,7 @@ getAllNlCtryCodes <- function(omit="none")
 #' @export
 getNlType <- function(nlYear)
 {
-  if (nlYear < 1992 || nlYear > year(now()))
+  if (nlYear < 1992 || nlYear > lubridate::year(lubridate::now()))
     return(NA)
 
   if (nlYear > 1992 && nlYear < 2012)
@@ -3278,20 +3313,21 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-        processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = cropMaskMethod)
+        processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = pkg_options("cropMaskMethod"), extractMethod = pkg_options("extractMethod"))
       }
 
       #post-processing. Delete the downloaded tiles to release disk space
+      if(pkg_options("deleteTiles"))
       for (tile in tileList)
       {
         nlYear <- substr(nlYearMonth, 1, 4)
         nlMonth <- substr(nlYearMonth, 5, 6)
 
         #del the tif file
-        file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+        #file.remove(getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
 
         #del the zip file
-        file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
+        #file.remove(getNtLtsZipLclNameVIIRS(nlYear, nlMonth, tileName2Idx(tile)))
       }
     }
     else if (nlType == "OLS")
@@ -3395,7 +3431,7 @@ cleanup <- function()
 #'
 #' @param z the zonal country polygon layer
 #'
-#' @param stat the function to calculate on
+#' @param stats a character list of statistics to calculate
 #'
 #' @param digits round off to how many decimals
 #'
@@ -3408,48 +3444,7 @@ cleanup <- function()
 #' @examples
 #' myZonal
 #'
-myZonal <- function (x, z, stat, digits = 0, na.rm = TRUE, ...)
-{
-  #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
-
-  fun <- match.fun(stat)
-
-  vals <- NULL
-
-  zones <- NULL
-
-  blocks <- raster::blockSize(x)
-
-  result <- NULL
-
-  for (i in 1:blocks$n)
-  {
-    message("Block: ", i)
-
-    message("Reading X")
-    vals <- raster::getValues(x, blocks$row[i], blocks$nrows[i])
-
-    vals[vals < 0] <- NA
-
-    message("Reading Zones")
-    zones <- round(raster::getValues(z, blocks$row[i], blocks$nrows[i]), digits = digits)
-
-    rDT <- data.table::data.table(vals, z=zones)
-
-    #setkey(rDT, z)
-
-    message("Calculating partial ", stat)
-    result <- rbind(result, rDT[, lapply(.SD, fun, na.rm = TRUE), by=z])
-  }
-
-  result <- result[, lapply(.SD, fun, na.rm = TRUE), by=z]
-
-  gc()
-
-  return(result)
-}
-
-myZonal1 <- function (x, z, stats, digits = 0, na.rm = TRUE, ...)
+myZonal <- function (x, z, stats, digits = 0, na.rm = TRUE, ...)
 {
   #http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
   
@@ -3595,7 +3590,7 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
   zone<-raster::raster(path.out.r)
 
   message("Calculating zonal stats ...")
-  Zstat<-data.frame(myZonal1(r, zone, stats))
+  Zstat<-data.frame(myZonal(r, zone, stats))
 
   message("Calculating zonal stats ... DONE")
 
