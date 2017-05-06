@@ -2,24 +2,24 @@
 #+ gzip all outputrasters and extract/delete tifs as required
 #+ delete the 2nd tif in the tiles (avg_rad_...).
 #+ keep tiles gzipped until required. extract/delete as needed
-#+ modularize everything; processNtLts especially
-#+ give functions better names more descriptive
-#+ validation of inputs, error handling
-#+ give temp files unique names to avoid problems in case of parallelization
-#+ settings and default settings list/DF
-#+ optimize download of tiles
+#+ modularize everything; processNtLts especially: PARTIALLY DONE
+#+ give functions better names more descriptive: PARTIALLY DONE
+#+ validation of inputs, error handling: PARTIALLY DONE
+#+ give temp files unique names to avoid problems in case of parallelization: DONE
+#+ settings and default settings list/DF: PARTIALLY DONE
+#+ optimize download of tiles: PARTIALLY DONE aria2
 #+ zone files functions
 #+ logging
 #+ debug mode
-#+ do not export internal functions?
+#+ do not export internal functions?: PARTIALLY DONE
 #+ remove dependency on rworldmap?
 #+ aggregating by date e.g. quarterly, semi-annually, annually
 #+ verify treatment of ATA i.e. single adm level countries
-#+ logic of getCtryPolyAdmLevelNames esp lvlEngName assignment needs scrutiny
+#+ logic of getCtryPolyAdmLevelNames esp lvlEngName assignment needs scrutiny: DONE
 #+ OLS
 #+ store data in RDS format instead of CSV?
 
-#Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal crop to extent would be highly desirable though so seeking other gdal-based workarounds
+#Notes: gdalwarp is not used for cropping because the crop_to_cutline option causes a shift in the cell locations which then affects the stats extracted. A gdal-based crop to extent would be highly desirable for performance reasons though so seeking other gdal-based workarounds
 
 # if (!require("pacman")) install.packages('pacman', repos='http://cran.r-project.org')
 #
@@ -1903,17 +1903,29 @@ ctryShpLyrName2Num <- function(layerName)
 
 #' Processes nightlights for an individual country in a particular year month 
 #'
-#' NOTE: \code{processNLCountryVIIRS()} should be called from the function \code{processNtLts()} which does all the preparation for processing. \code{processNtLts()} which can process multiple countries and time periods will download all the required tiles and polygons prior to calling \code{processNLCountryVIIRS()}. \code{processNLCountryVIIRS()} assumes that all inputs are available and will not attempt to download them.
+#' Given a \code{countryCode}, \code{yearMonth} and preferred processing methods 
+#'     \code{cropMaskMethod} and \code{extractMethod}, this function will first check if the 
+#'     data already exists in the cache. First it will check if the data file exists and if it 
+#'     does not it will create a dataframe of the country data containing only the administrative
+#'     properties and move to processing. If the data file exists it will check to see if the 
+#'     particular year month already exists. If it exists, it will exit with a message. If it does
+#'     not exist, it will load the country data file and move on to processing.
 #' 
-#' Given a \code{countryCode}, \code{yearMonth} and preferred processing methods \code{cropMaskMethod} and \code{extractMethod}, this function will first check if the data already exists in the cache. First it will check if the data file exists and if it does not it will create a dataframe of the country data containing only the administrative properties and move to processing. If the data file exists it will check to see if the particular year month already exists. If it exists, it will exit with a message. If it does not exist, it will load the country data file and move on to processing.
+#'     Processing consists of:
+#'     \enumerate{ 
+#'        \item Reading in the country polygon in ESRI Shapefile format
+#'        \item Reading in the tiles that the particular country intersects with and then clipping 
+#'        the tile(s) to the country boundary
+#'        \item Extract the data from the clipped raster and compute various statistics at the lowest admin level in the country.
+#'        \item Finally, these stats are appended to the data frame and written to the data file.
+#'     }
 #' 
-#' Processing consists of:
-#' \enumerate{ 
-#'    \item Reading in the country polygon in ESRI Shapefile format
-#'    \item Reading in the tiles that the particular country intersects with and then clipping the tile(s) to the country boundary
-#'    \item Extract the data from the clipped raster and compute various statistics at the lowest admin level in the country. 
-#'    \item Finally, these stats are appended to the data frame and written to the data file.
-#' }
+#'     NOTE: \code{processNLCountryVIIRS()} assumes that all inputs are available and will not 
+#'     attempt to download them. It should ideally be called from the function \code{processNtLts()}
+#'     which does all the preparation for processing. \code{processNtLts()} which can process 
+#'     multiple countries and time periods will download all the required tiles and polygons prior to
+#'     calling \code{processNLCountryVIIRS()}. \code{getCtryNlData} can also be used with the option
+#'     \code{ignoreMissing=FALSE} which will call \code{processNtLts} in the background.
 #'
 #' @param ctryCode
 #'
@@ -1922,8 +1934,8 @@ ctryShpLyrName2Num <- function(layerName)
 #' @param cropMaskMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to crop and mask
 #'     the country rasters
 #'     
-#' @param extractMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to crop and mask
-#'     the country rasters
+#' @param extractMethod ("rast" or "gdal") Whether to use rasterize or gdal-based functions to 
+#' crop and mask the country rasters
 #'
 #' @return None
 #'
@@ -2158,6 +2170,22 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast", 
 #'
 insertNlDataCol <- function (ctryNlDataDF, dataCol, statType, nlYearMonth, nlType = "VIIRS")
 {
+  if(missing(ctryNlDataDF))
+    stop("Missing required parameter ctryNlDataDF")
+  
+  if(missing(dataCol))
+    stop("Missing required parameter dataCol")
+  
+  if(missing(statType))
+    stop("Missing required parameter statType")
+  
+  if(missing(nlYearMonth))
+    stop("Missing required parameter nlYearMonth")
+  
+  if(missing(nlType))
+    warning("Missing parameter nlType, defaulting to: ", nlType)
+  
+  
   #append the calculated means for the polygon as a new column
   ctryNlDataDF <- cbind(ctryNlDataDF, dataCol)
   
@@ -2327,6 +2355,12 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stat, ignoreMissing=NULL, sour
   if(missing(ignoreMissing))
     ignoreMissing = TRUE
   
+  if(ignoreMissing && !existsCtryNlDataFile(ctryCode))
+    stop("No data exists for ", ctryCode, ". Set IgnoreMissing=TRUE to download and process")
+  
+  if(length(ctryCode) > 1)
+    stop("getCtryNlData can only process 1 ctryCode")
+  
   if (!missing(nlYearMonths)) #if nlYearMonths is provided process else return all ctry data
   {
     existnlYMs <- sapply(nlYearMonths, function(nlYM) existsCtryNlDataVIIRS(ctryCode, nlYM))
@@ -2335,34 +2369,43 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stat, ignoreMissing=NULL, sour
     {
       if (is.null(ignoreMissing)) #default
       {
-        gase::warning("IgnoreMissing not set. No data found for ", ctryCode, " in ", gase::paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning NULL. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        message("IgnoreMissing not set. No data found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning NULL. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
         return (NULL)
       }
       else if(!ignoreMissing)
       {
-        warning("IgnoreMissing == FALSE. Processing data not found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". This may take a while. Note: Set \"ignoreMissing=TRUE\" to return only data found or \"ignoreMissing=NULL\" to return NULL if not all the data is found")
+        message("IgnoreMissing == FALSE. Processing data not found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". This may take a while. Note: Set \"ignoreMissing=TRUE\" to return only data found or \"ignoreMissing=NULL\" to return NULL if not all the data is found")
         processNtLts(ctryCode, nlYearMonths)
       }
       else if (ignoreMissing)
       {
-        warning("Ignoring missing data for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning existing data only.")
+        message("Ignoring missing data for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning existing data only.")
       }
       else
       {
-        warning("Invalid value for \"ignoreMissing\". Exiting. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        message("Invalid value for \"ignoreMissing\". Exiting. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
         return(NULL)
       }
     }
   }
   else
   {
-    ctryData <- as.data.frame(fread(getCtryNlDataFnamePath(ctryCode)))
+    if(existsCtryNlDataFile(ctryCode))
+      ctryData <- as.data.frame(fread(getCtryNlDataFnamePath(ctryCode)))
+    else
+    {
+      message("Data for ", ctryCode, " does not exist. Set IgnoreMissing=FALSE to download and process")
+      ctryData <- NULL
+    }
 
     return(ctryData)
   }
 
   #to remove any missing nlYearMonths if ignoreMissing==TRUE
-  existingCols <- names(existnlYMs[which(existnlYMs)])
+  if(ignoreMissing)
+    existingCols <- names(existnlYMs[which(existnlYMs)])
+  else
+    existingCols <- nlYearMonths
 
   ctryData <- as.data.frame(data.table::fread(getCtryNlDataFnamePath(ctryCode)))
 
@@ -2372,7 +2415,7 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stat, ignoreMissing=NULL, sour
   #retain columns with country admin levels
   cols <- cols[grep("^[^NL_]", cols)]
 
-  nlCols <- as.character(sapply(existingCols, function(x) getCtryNlDataColName(stat, "VIIRS", nlYearMonth=x)))
+  nlCols <- as.character(sapply(existingCols, function(x) getCtryNlDataColName(stats, "VIIRS", nlYearMonth=x)))
 
   cols <- c(cols, nlCols)
 
@@ -2407,8 +2450,9 @@ getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
 {
   if (missing("statType") || !is.character(statType) || statType == "" || is.null(statType))
     stop("statType not provided")
-  if (!validStat(statType))
-    stop("Invalid statType")
+  
+  if (!allValid(statType, validStat))
+    stop("Invalid/unsupported stat detected")
   
   colName <- "NL_"
   
@@ -2430,6 +2474,18 @@ validStat <- function(stat)
     return(FALSE)
   else
     return(TRUE)
+}
+
+allValid <- function(testData, testFun)
+{
+  valid <- sapply(testData, function(x) eval(parse(text="testFun(x)")))
+  
+  invalidData <- testData[!valid]
+  
+  if(length(invalidData)>0)
+    warning("Invalid data: ", invalidData)
+  
+  return(all(valid))
 }
 ######################## existsCtryNlDataFile ###################################
 
@@ -3213,18 +3269,23 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
   #3. OLS
 
   #if the period is not given process all available periods
-  if (missing("nlYearMonths") || is.null(nlYearMonths) || length(nlYearMonths) == 0 || nlYearMonths == "")
+  if(missing("nlYearMonths") || is.null(nlYearMonths) || length(nlYearMonths) == 0 || nlYearMonths == "")
   {
     nlYears <- getAllNlYears(nlType)
   }
   
-  allValid <- sapply(nlYearMonths, validNlYearMonthVIIRS) #check if the nlYearMonths are valid
+  # allValid <- sapply(nlYearMonths, validNlYearMonthVIIRS) #check if the nlYearMonths are valid
+  # 
+  # if(sum(allValid) != length(nlYearMonths)) #if some returned FALSE
+  # {
+  #   invalidNlYearMonths <- nlYearMonths[!allValid] #get the invalid nlYearMonths
+  #   
+  #   stop("Invalid nlYearMonths detected: ", paste0(invalidNlYearMonths, collapse = ", "))
+  # }
   
-  if (sum(allValid) != length(nlYearMonths)) #if some returned FALSE
+  if(!allValid(nlYearMonths, validNlYearMonthVIIRS))
   {
-    invalidNlYearMonths <- nlYearMonths[!allValid] #get the invalid nlYearMonths
-    
-    stop("Invalid nlYearMonths detected: ", paste0(invalidNlYearMonths, collapse = ", "))
+    stop("Invalid nlYearMonths detected")
   }
   
   #if the tile mapping does not exist create it
@@ -3277,7 +3338,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
       {
         if (existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
         {
-          message ("Data exists for", ctryCode)
+          message ("Data exists for ", ctryCode, ":", nlYearMonth)
 
           next
         }
@@ -3302,14 +3363,23 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
 
         next
       }
-
-      if (!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
+      else #if the cropped raster is not found try to download
       {
-        print("Something went wrong with the tile downloads. Aborting ...")
-
-        break
+        if (!file.exists(getCtryRasterOutputFname(ctryCode, nlYearMonth)))
+        {
+            if(!getNlYearMonthTilesVIIRS(nlYearMonth, tileList))
+            {
+              print("Something went wrong with the tile downloads. Aborting ...")
+      
+              break
+            }
+        }
+        else
+        {
+          print("Cropped raster already exists. Skipping tile download")
+        }
       }
-
+      
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
@@ -3598,7 +3668,7 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
 
   return(Zstat)
 
-  # 3/ Merge data in the shapefile and write it
+  # 3/ Merge data in the shapefile and write it #Not required at this point
   #shp<-readOGR(path.in.shp, layer= sub("^([^.]*).*", "\\1", basename(path.in.shp)))
 
   #shp@data <- data.frame(shp@data, Zstat[match(shp@data[,zone.attribute], Zstat[, "z"]),])
