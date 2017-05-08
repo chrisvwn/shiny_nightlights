@@ -2128,9 +2128,9 @@ processNLCountryVIIRS <- function(ctryCode, nlYearMonth, cropMaskMethod="rast", 
   {
     message("Data file found: ", getCtryNlDataFnamePath(ctryCode))
 
-    if(existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
+    if(all(sapply(fnStats, function(stat) existsCtryNlDataVIIRS(ctryCode, nlYearMonth, stat))))
     {
-      message("Data exists for ", ctryCode, " ", nlYearMonth, ". Skipping")
+      message("All stats data exists for ", ctryCode, " ", nlYearMonth, ". Skipping")
 
       return(-1)
     }
@@ -2353,7 +2353,7 @@ insertNlDataCol <- function (ctryNlDataDF, dataCol, statType, nlYearMonth, nlTyp
   ctryNlDataDF <- cbind(ctryNlDataDF, dataCol)
   
   #name the new column which is currently last with the yearmonth of the data
-  names(ctryNlDataDF)[ncol(ctryNlDataDF)] <- getCtryNlDataColName(statType, nlType, nlYearMonth)
+  names(ctryNlDataDF)[ncol(ctryNlDataDF)] <- getCtryNlDataColName(nlYearMonth = nlYearMonth, stat = statType, nlType = nlType)
   
   #re-arrange the columns
   #read in all column names in the dataframe afresh
@@ -2577,49 +2577,60 @@ getCtryNlDataFnamePath <- function(ctryCode)
 #'  #returns dataframe
 #'
 #' @export
-getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), ignoreMissing=NULL, source="local")
+getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), nlType, ignoreMissing=NULL, source="local")
 {
   if(missing(ctryCode))
     stop("Missing required ctryCode")
 
+  if(missing(nlYearMonths))
+    nlYearMonths <- getAllNlYears()
+  
   if(missing(ignoreMissing))
     ignoreMissing = TRUE
-  
-  if(ignoreMissing && !existsCtryNlDataFile(ctryCode))
-    stop("No data exists for ", ctryCode, ". Set IgnoreMissing=TRUE to download and process")
   
   if(length(ctryCode) > 1)
     stop("getCtryNlData can only process 1 ctryCode")
   
+  if(!is.null(ignoreMissing))
+    if(ignoreMissing && !existsCtryNlDataFile(ctryCode))
+      stop("No data exists for ", ctryCode, ". Set IgnoreMissing= to download and process")
+  
   if (!missing(nlYearMonths)) #if nlYearMonths is provided process else return all ctry data
   {
-    existnlYMs <- sapply(nlYearMonths, function(nlYM) existsCtryNlDataVIIRS(ctryCode, nlYM))
-
-    if (!all(existnlYMs))
+    #check if the stats exist in the given year months will test nlYm1+stat1, nlYm2+stat1, ..., nlYm1+stat2, nlYm2+stat2
+    nlYmStats <- expand.grid(nlYearMonths, stats)
+    
+    existnlYMStats <- apply(nlYmStats, 1, function(x) existsCtryNlDataVIIRS(ctryCode, x[1], x[2]))
+    
+    missingData <- paste0(apply(nlYmStats[!existnlYMStats,], 1, function(x)paste0(x[1], ":", x[2])), collapse = ", ")
+    
+    if (!all(existnlYMStats))
     {
       if (is.null(ignoreMissing)) #default
       {
-        message("IgnoreMissing not set. No data found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning NULL. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        message("No data found for ", ctryCode, " in ", missingData, ". Returning NULL. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
         return (NULL)
       }
       else if(!ignoreMissing)
       {
-        message("IgnoreMissing == FALSE. Processing data not found for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". This may take a while. Note: Set \"ignoreMissing=TRUE\" to return only data found or \"ignoreMissing=NULL\" to return NULL if not all the data is found")
-        processNtLts(ctryCode, nlYearMonths)
+        message("Processing missing data: ", ctryCode, " in ", missingData, ". This may take a while. Note: Set 'ignoreMissing=TRUE' to return only data found or 'ignoreMissing=NULL' to return NULL if not all the data is found")
+        
+        processNtLts(ctryCode, nlYearMonths, stats = stats)
       }
       else if (ignoreMissing)
       {
-        message("Ignoring missing data for ", ctryCode, " in ", paste(names(existnlYMs)[which(existnlYMs==FALSE)], collapse=", "), ". Returning existing data only.")
+        message("Ignoring missing data for ", ctryCode, " in ", missingData, ". Returning existing data only.")
       }
       else
       {
-        message("Invalid value for \"ignoreMissing\". Exiting. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
+        message("Invalid value for 'ignoreMissing'. Exiting. Note: Set ignoreMissing=TRUE to return only data found or ignoreMissing=FALSE to download and extract missing data")
         return(NULL)
       }
     }
   }
   else
   {
+    #return the whole data frame
     if(existsCtryNlDataFile(ctryCode))
       ctryData <- as.data.frame(fread(getCtryNlDataFnamePath(ctryCode)))
     else
@@ -2633,9 +2644,33 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), ig
 
   #to remove any missing nlYearMonths if ignoreMissing==TRUE
   if(ignoreMissing)
-    existingCols <- names(existnlYMs[which(existnlYMs)])
+  {
+    if(any(existnlYMStats))
+      existingCols <- apply(nlYmStats[existnlYMStats,], 1, function(x) getCtryNlDataColName(x[1], x[2]))
+    else
+      existingCols <- NULL
+  }
+  else 
+  {
+    #ignoreMissing == FALSE so we should have the missing data
+    #check again to see that processNtLts was successful
+    existnlYMStats <- apply(nlYmStats, 1, function(x) existsCtryNlDataVIIRS(ctryCode, x[1], x[2]))
+    
+    if(all(existnlYMStats))
+      existingCols <- apply(nlYmStats[existnlYMStats,], 1, function(x) getCtryNlDataColName(x[1], x[2]))
+    else
+      stop("An error occurred")
+  }
+  
+  if(length(existingCols) < 1)
+  {
+   message("No nightlight data. Returning ctry admin data only")
+   #return(NULL)
+  }
   else
-    existingCols <- nlYearMonths
+  {
+    message("Retrieving requested data")
+  }
 
   ctryData <- as.data.frame(data.table::fread(getCtryNlDataFnamePath(ctryCode)))
 
@@ -2644,8 +2679,8 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), ig
 
   #retain columns with country admin levels
   cols <- cols[grep("^[^NL_]", cols)]
-
-  nlCols <- as.character(sapply(existingCols, function(x) getCtryNlDataColName(stats, "VIIRS", nlYearMonth=x)))
+  
+  nlCols <- existingCols
 
   cols <- c(cols, nlCols)
 
@@ -2662,26 +2697,32 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), ig
 #' Construct the name of a nightlight data column given the nightlight type and yearMonth. Used in
 #'     creating and retrieving data columns from the nightlight data file
 #'
+#' @param nlYearMonth character vector. the yearMonth (concat year + month) in the format 
+#'     "YYYYMM" e.g. "201203"
+#'
 #' @param stat
 #' 
 #' @param nlType character vector. the type of nightlight i.e. "OLS" or VIIRS. Default=VIIRS
-#'
-#' @param nlYearMonth character vector. the yearMonth (concat year + month) in the format 
-#'     "YYYYMM" e.g. "201203"
 #'
 #' @return character string
 #'
 #' @examples
 #' ctryCode <- "KEN"
 #' dt <- read.csv(getCtryNlDataFnamePath(ctryCode))
-#' dt <- dt[,getCtryNlDataColName(nlType="VIIRS", "201612")]
+#' dt <- dt[,getCtryNlDataColName("201612", nlType="VIIRS")]
 #'
-getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
+getCtryNlDataColName <- function(nlYearMonth, stat, nlType="VIIRS")
 {
-  if (missing("statType") || !is.character(statType) || statType == "" || is.null(statType))
-    stop("statType not provided")
+  if(missing(nlYearMonth))
+    stop("Missing required parameter nlYearMonth")
   
-  if (!allValid(statType, validStat))
+  if(missing(stat))
+    stop("Missing required parameter stat")
+
+  if(!validNlYearMonthVIIRS(nlYearMonth))
+    stop("Invalid nlYearMonth")
+    
+  if (!allValid(stat, validStat))
     stop("Invalid/unsupported stat detected")
   
   colName <- "NL_"
@@ -2691,10 +2732,14 @@ getCtryNlDataColName <- function(statType, nlType="VIIRS", nlYearMonth)
   else if(nlType == "OLS")
     colName <- paste0(colName, "OLS_")
   
-  colName <- paste0(colName, nlYearMonth, "_")
-  
-  colName <- paste0(colName, toupper(statType))
+  # colName <- paste0(colName, nlYearMonth, "_")
+  # 
+  # colName <- paste0(colName, toupper(stat))
 
+  colName <- paste0(colName, sapply(nlYearMonth, function(x) paste0(x, "_", toupper(stat))))
+  
+  colName <- sort(colName)
+  
   return(colName)
 }
 
@@ -2718,9 +2763,22 @@ validStat <- function(stat)
   if(missing(stat))
     stop("Missing required parameter stat")
   
+  if(!is.character(stat) || is.null(stat) || is.na(stat) || stat == "")
+    stop("Invalid stat")
   
-  
-  if (!tolower(stat) %in% c("sum", "mean", "median", "min", "max", "var", "sd"))
+  matchedFun <- tryCatch(
+    {
+      matched <- match.fun(stat)
+    }, error = function(err)
+    {
+      message(paste0("Invalid stat: ", stat))
+      matched <- NULL
+      return(matched)
+    }
+  )
+
+  #if (!tolower(stat) %in% c("sum", "mean", "median", "min", "max", "var", "sd"))
+  if(is.null(matchedFun))
     return(FALSE)
   else
     return(TRUE)
@@ -3525,6 +3583,8 @@ getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
 #' @param ctryCode character the ISO3 code of the country
 #'
 #' @param nlYearMonth character the year and month concatenated
+#' 
+#' @param stat character the stat to check for
 #'
 #' @return TRUE/FALSE
 #'
@@ -3532,7 +3592,7 @@ getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
 #' existsCtryNlDataVIIRS("KEN", "201204")
 #'
 #' @export
-existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
+existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth, stat)
 {
   if(missing(ctryCode))
     stop("Missing required parameter ctryCode")
@@ -3540,12 +3600,29 @@ existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
   if(missing(nlYearMonth))
     stop("Missing required parameter nlYearMonth")
   
+  if(missing(stat))
+    stop("Missing required parameter stat")
+  
+  # #number of arguments
+  # if(length(ctryCode) > 1)
+  #   stop("Please supply only 1 ctryCode to check")
+  # 
+  # if(length(nlYearMonth) > 1)
+  #   stop("Please supply only 1 nlYearMonth to check")
+  # 
+  # if(length(stat) > 1)
+  #   stop("Please supply only 1 stat to check")
+  
+  
   if(!validCtryCode(ctryCode))
     stop("Invalid ctryCode")
   
   if(!validNlYearMonthVIIRS(nlYearMonth))
     stop("Invalid nlYearMonth")
   
+  if(!validStat(stat))
+    stop("Invalid stat")
+    
   if (!existsCtryNlDataFile(ctryCode))
     return (FALSE)
 
@@ -3553,7 +3630,7 @@ existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth)
 
   hd <- names(dt)
 
-  if (length(grep(paste0("VIIRS_", nlYearMonth), hd)) > 0)
+  if (length(grep(getCtryNlDataColName(nlYearMonth = nlYearMonth, stat = stat, "VIIRS"), hd)) > 0)
     return(TRUE)
   else
     return(FALSE)
@@ -3709,14 +3786,14 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
       #For each country
       for (ctryCode in unique(ctryCodes))
       {
-        if (existsCtryNlDataVIIRS(ctryCode, nlYearMonth))
+        if (all(sapply(stats, function(stat) existsCtryNlDataVIIRS(ctryCode, nlYearMonth, stat))))
         {
-          message ("Data exists for ", ctryCode, ":", nlYearMonth)
+          message ("All stats exists for ", ctryCode, ":", nlYearMonth)
 
           next
         }
 
-        message("Adding tiles for ", ctryCode)
+        message("Stats missing. Adding tiles for ", ctryCode)
 
         ctryTiles <- getCtryCodeTileList(ctryCode)
 
@@ -3756,7 +3833,7 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
       #for all required countries
       for (ctryCode in unique(ctryCodes))
       {
-        processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = pkg_options("cropMaskMethod"), extractMethod = pkg_options("extractMethod"))
+        processNLCountryVIIRS(ctryCode, nlYearMonth, cropMaskMethod = pkg_options("cropMaskMethod"), extractMethod = pkg_options("extractMethod"), fnStats = stats)
       }
 
       #post-processing. Delete the downloaded tiles to release disk space
@@ -3935,7 +4012,7 @@ myZonal <- function (x, z, stats, digits = 0, na.rm = TRUE, ...)
     result <- rbind(result, eval(parse(text = funs)))
   }
   
-  resultfun <- paste0(paste0(statsFn,"="),paste0(statsFn, paste0("(",names(result)[2:ncol(result)],", na.rm=TRUE)")), collapse = ", ")
+  resultfun <- paste0(paste0(stats,"="),paste0(stats, paste0("(",names(result)[2:ncol(result)],", na.rm=TRUE)")), collapse = ", ")
   
   resultfuns <- paste0("result[, list(", resultfun, "), by=z]")
   
@@ -4064,8 +4141,10 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
 
   message("Calculating zonal stats ... DONE")
 
-  colnames(Zstat)[2:length(Zstat)]<-paste0("B", c(1:(length(Zstat)-1)), "_",stats)
+  #colnames(Zstat)[2:length(Zstat)]<-paste0("B", c(1:(length(Zstat)-1)), "_",stats)
 
+  colnames(Zstat)[2:length(Zstat)] <- stats
+  
   return(Zstat)
 
   # 3/ Merge data in the shapefile and write it #Not required at this point
@@ -4130,7 +4209,7 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
 
   #ctryPoly <- readOGR(getPolyFnamePath(ctryCode), lowestLyrName)
 
-  sumAvgRad <- ZonalPipe(ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stats=stats)
+  sumAvgRad <- ZonalPipe(ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stats=fnStats)
 
   ctryPolyData <- ctryPoly@data
 
@@ -4141,7 +4220,7 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
   #if there is only the country adm level i.e. no lower adm levels than the country adm level then we only have 1 row each but IDs may not match as seen with ATA. treat differently
   #since we do not have IDs to merge by, we simply cbind the columns and return column 2
   
-  cols <- paste0("B", c(1:(length(stats))), "_",fnStats)
+  #cols <- paste0("B", c(1:(length(fnStats))), "_",fnStats)
   
   if (lowestIDCol == "ID_0")
   {
@@ -4153,7 +4232,7 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
   {
     sumAvgRad <- merge(ctryPolyData, sumAvgRad, by.x=lowestIDCol, by.y="z", all.x=T, sort=T)
 
-    sumAvgRad <- setNames(sumAvgRad[ ,cols], fnStats)
+    #sumAvgRad <- names(sumAvgRad) <-  c(names(sumAvgRad), fnStats)
   }
 
   return(sumAvgRad)
