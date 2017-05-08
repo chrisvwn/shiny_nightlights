@@ -13,7 +13,7 @@
 # 
 # library(shiny)
 # library(ggplot2)
-# library(plotly)
+ library(plotly)
 # library(leaflet)
 # library(reshape)
 # library(rgdal)
@@ -83,7 +83,7 @@ shiny::shinyServer(function(input, output, session){
       if (length(input$countries) != 1)
         return()
 
-      temp <- data.table::fread(rnightlights::getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
+      temp <- data.table::fread(getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
       
       cols <- names(temp)
       
@@ -100,16 +100,35 @@ shiny::shinyServer(function(input, output, session){
       if (length(countries) != 1)
         return()
 
-      hdr <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries), nrows = 1, header = T)
+      hdr <- data.table::fread(getCtryNlDataFnamePath(countries), nrows = 1, header = T)
       
       colClasses <- names(hdr)
       
       colClasses[-grep("area_sq_km|NL_", colClasses)] <- "character"
       colClasses[grep("area_sq_km|NL_", colClasses)] <- "NULL"
       
-      data <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries), colClasses = colClasses, header = T)
+      data <- data.table::fread(getCtryNlDataFnamePath(countries), colClasses = colClasses, header = T)
     })
     
+  #### reactive ctryAdmLevels ####
+  
+  ctryDataStats <- shiny::reactive({
+    print(paste0("here: ctryDataStats"))
+    
+    if (length(input$countries) != 1)
+      return()
+    
+    temp <- data.table::fread(getCtryNlDataFnamePath(input$countries), nrows = 1, header = T)
+    
+    cols <- names(temp)
+    
+    cols <- cols[grep("NL_", cols)]
+    
+    stats <- unique(gsub(".*._.*._.*._", "", cols))
+    
+    
+  })
+  
     #### reactive ctryNlData ####
   
     ctryNlData <- shiny::reactive({
@@ -125,16 +144,16 @@ shiny::shinyServer(function(input, output, session){
       
       if (length(countries) == 1)
       {
-        ctryData <- data.table::fread(rnightlights::getCtryNlDataFnamePath(countries))
+        ctryData <- data.table::fread(getCtryNlDataFnamePath(countries))
       }
       else if(length(countries) > 1) #remove subcountry admin levels
       {
         for (ctryCode in countries)
         {
           print(ctryCode)
-          temp <- data.table::fread(rnightlights::getCtryNlDataFnamePath(ctryCode))
+          temp <- data.table::fread(getCtryNlDataFnamePath(ctryCode))
           
-          ctryCols <- grep("country_code|area|NL_", names(temp))
+          ctryCols <- grep("country|area|NL_", names(temp))
           
           temp <- temp[, ctryCols, with=F]
           
@@ -159,14 +178,27 @@ shiny::shinyServer(function(input, output, session){
         return()
       
       ctryData <- ctryNlData()
+    
+      #the nightlight cols
+      nlCols <- names(ctryData)[grep("NL_", names(ctryData))]
       
-      meltMeasureVars <- names(ctryData)[grep("NL_", names(ctryData))]
+      #the cols with the stats we want
+      statCols <- names(ctryData)[grep(paste0("NL_.*.", input$ctryStat), names(ctryData))]
       
+      #the non nightlight cols
+      ctryDataCols <- setdiff(names(ctryData), nlCols)
+
+      #the cols to melt by
+      meltMeasureVars <- statCols
+            
+      #combine the non-nightlight cols and the cols with the stats we want
+      ctryData <- subset(ctryData, select=c(ctryDataCols, meltMeasureVars))
+
+      #
       meltVarNames <- gsub("[^[:digit:]]", "", meltMeasureVars)
       
-      ctryData <- reshape2::melt(ctryData, measure.vars=meltMeasureVars)
-      
-      # ctryData$variable <- sapply(ctryData$variable, function(x) {paste0(gsub("[^[:digit:]]","", x),"01")})
+      ctryData <- data.table::data.table(reshape2::melt(ctryData, measure.vars=meltMeasureVars))
+
       ctryData$variable <- paste0(gsub("[^[:digit:]]","", ctryData$variable),"01")
       
       ctryData$variable <- as.Date(ctryData$variable, format="%Y%m%d")
@@ -181,6 +213,17 @@ shiny::shinyServer(function(input, output, session){
       lastUpdated = NULL
     )
     
+    output$radioStats <- shiny::renderUI({
+      if(length(input$countries) != 1)
+        return()
+      
+      shiny::radioButtons(inputId = "ctryStat",
+                          label = "Stats",
+                          choices = ctryDataStats(),
+                          inline = TRUE
+      )
+    })
+  
     #### observe lastUpdated ####
     
     observe({
@@ -201,6 +244,7 @@ shiny::shinyServer(function(input, output, session){
                      choices = ctryAdmLevels()
                    )
     })
+    
     
     #### render UI: intraCountry ####
     
@@ -608,13 +652,13 @@ shiny::shinyServer(function(input, output, session){
         if ("norm_area" %in% scale)
           meltCtryData$value <- (meltCtryData$value)/meltCtryData$area_sq_km
         
-        ctryPoly0 <- rgdal::readOGR(rnightlights::getPolyFnamePath(countries), rnightlights::getCtryShpLyrName(countries,0))
+        ctryPoly0 <- rgdal::readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
         
         map <- leaflet::leaflet(data=ctryPoly0) %>%
           #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
           leaflet::addTiles() %>%
           leaflet::addWMSTiles(layerId="nlRaster", baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204", options = WMSTileOptions(format = "image/png", transparent = TRUE, opacity=1)) %>%
-          leaflet::addPolygons(layerId = countries, fill = FALSE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country_code")
+          leaflet::addPolygons(layerId = countries, fill = FALSE, fillColor = "#fefe40", stroke = TRUE, weight=4, smoothFactor = 0.7, opacity = 1, color="white", dashArray = "5", group = "country")
         
         
         lvlCtryData <- stats::setNames(meltCtryData[,mean(value, na.rm = TRUE), by = list(meltCtryData[[admLevel]])], c(admLevel, "value"))
@@ -626,7 +670,7 @@ shiny::shinyServer(function(input, output, session){
         pal <- cbPalette
         
         #turn off previous layer? No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
-        ctryPoly <- rgdal::readOGR(rnightlights::getPolyFnamePath(countries), rnightlights::getCtryShpLyrName(countries, 1)) 
+        ctryPoly <- rgdal::readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, 1)) 
         
         ctryPoly <- sp::spTransform(ctryPoly, wgs84)
         
@@ -762,12 +806,12 @@ shiny::shinyServer(function(input, output, session){
             admLvlNums <- 1
           
           ctryAdmLevels <- ctryAdmLevels()
-          admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
+          admLevel <- ctryAdmLevels[as.numeric(data.table::last(admLvlNums))]
           
           print(paste0("admLevel:", admLevel))
           
           if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
-            admLevel <- "country_code"
+            admLevel <- "country"
           
           ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
           
@@ -801,7 +845,7 @@ shiny::shinyServer(function(input, output, session){
             }
             else
             {
-              g <- ggplot2::ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country_code)) + ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
+              g <- ggplot2::ggplot(data=ctryData, aes(x=factor(variable), y=value, col=country)) + ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
             }
             
             g <- g + ggplot2::geom_boxplot()# +facet_grid(.~variable)
@@ -817,21 +861,21 @@ shiny::shinyServer(function(input, output, session){
             }
             else
             {
-              #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+              #ctryData <- aggregate(value ~ country+variable, data=ctryData, mean)
               #switched to data.table aggregation
-              ctryData <- stats::setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country_code, variable)], c("country_code", "variable", "value"))
-              g <- ggplot2::ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
+              ctryData <- stats::setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country, variable)], c("country", "variable", "value"))
+              g <- ggplot2::ggplot(data=ctryData, aes(x=variable, y=value, col=country))
             }
             
             g <- g + ggplot2::geom_line() + ggplot2::geom_point() + ggplot2::geom_smooth(aes(group=1),method = "loess", weight=3) #+ theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) #+ labs(col=year)
           }
           else if (graphType == "histogram")
           {
-            #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+            #ctryData <- aggregate(value ~ country+variable, data=ctryData, mean)
             
             g <- ggplot(data=ctryData, aes(x=value))
             
-            g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
+            g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country, ncol = length(countries)) # Overlay with transparent density plot
             
           }
           
@@ -894,12 +938,12 @@ shiny::shinyServer(function(input, output, session){
           admLvlNums <- 1
         
         ctryAdmLevels <- ctryAdmLevels()
-        admLevel <- ctryAdmLevels[as.numeric(last(admLvlNums))]
+        admLevel <- ctryAdmLevels[as.numeric(data.table::last(admLvlNums))]
         
         print(paste0("admLevel:", admLevel))
         
         if (!exists("admLevel") || is.null(admLevel) || length(admLevel)==0)
-          admLevel <- "country_code"
+          admLevel <- "country"
           
       ctryData <- subset(ctryData, variable >= nlYearMonthRange[1] & variable <= nlYearMonthRange[2])
       
@@ -929,7 +973,7 @@ shiny::shinyServer(function(input, output, session){
         }
         else
         {
-          g <- ggplot2::ggplot(data=ctryData, ggplot2::aes(x=factor(variable), y=value, col=country_code)) + ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
+          g <- ggplot2::ggplot(data=ctryData, ggplot2::aes(x=factor(variable), y=value, col=country)) + ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
         }
         
         g <- g + ggplot2::geom_boxplot()# +facet_grid(.~variable)
@@ -945,21 +989,21 @@ shiny::shinyServer(function(input, output, session){
         }
         else
         {
-          #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+          #ctryData <- aggregate(value ~ country+variable, data=ctryData, mean)
           #switched to data.table aggregation
-          ctryData <- stats::setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country_code, variable)], c("country_code", "variable", "value"))
-          g <- ggplot2::ggplot(data=ctryData, aes(x=variable, y=value, col=country_code))
+          ctryData <- stats::setNames(ctryData[,mean(value, na.rm = TRUE),by = list(country, variable)], c("country", "variable", "value"))
+          g <- ggplot2::ggplot(data=ctryData, aes(x=variable, y=value, col=country))
         }
 
         g <- g+ ggplot2::geom_line() + ggplot2::geom_point()+ ggplot2::theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ggplot2::labs(col=admLevel)
       }
       else if (graphType == "histogram")
       {
-        #ctryData <- aggregate(value ~ country_code+variable, data=ctryData, mean)
+        #ctryData <- aggregate(value ~ country+variable, data=ctryData, mean)
         
         g <- ggplot2::ggplot(data=ctryData, aes(x=value))
         
-        g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country_code, ncol = length(countries)) # Overlay with transparent density plot
+        g <- g + ggplot2::geom_histogram(aes(y=..density..), bins = 30, colour="black", fill="white") + ggplot2::geom_density(alpha=.2, fill="#FF6666") + ggplot2::facet_wrap(~ variable+country, ncol = length(countries)) # Overlay with transparent density plot
 
       }
 
@@ -1019,7 +1063,7 @@ shiny::shinyServer(function(input, output, session){
 #       
 #       lyrNum <- which(lyrs == admLevel) - 1
 #       
-#       ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  yes = rnightlights::getCtryShpLyrName(countries,0), no = rnightlights::getCtryShpLyrName(countries,lyrNum)))
+#       ctryPoly <- readOGR(getPolyFnamePath(countries), ifelse(is.null(admLevel),  yes = getCtryShpLyrName(countries,0), no = getCtryShpLyrName(countries,lyrNum)))
 #       
 #       proxy <- leafletProxy("map", data=ctryPoly)
 #       
@@ -1088,7 +1132,7 @@ shiny::shinyServer(function(input, output, session){
       
       #get our data ready to match with polygons
       #subset data based on level selections
-      ctryData <- subset(ctryData, year(variable) == year(nlYm) & month(variable) == month(nlYm))
+      ctryData <- subset(ctryData, lubridate::year(variable) == lubridate::year(nlYm) & lubridate::month(variable) == lubridate::month(nlYm))
 
       #only used when we want to show only the selected features
       #for now we want all features shown and then highlight the selected features
@@ -1116,7 +1160,7 @@ shiny::shinyServer(function(input, output, session){
       
       message(ctryYearMonth)
       
-      ctryPoly0 <- rgdal::readOGR(rnightlights::getPolyFnamePath(countries), rnightlights::getCtryShpLyrName(countries,0))
+      ctryPoly0 <- rgdal::readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries,0))
       
       map <- leaflet::leaflet(data=ctryPoly0) %>%
         #addTiles("http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png") %>%
@@ -1124,7 +1168,7 @@ shiny::shinyServer(function(input, output, session){
         
         leaflet::addWMSTiles(layerId="nlRaster",
                              baseUrl = "http://localhost/cgi-bin/mapserv?map=nightlights_wms.map", layers = "nightlights_201204",
-                             options = WMSTileOptions(format = "image/png",
+                             options = leaflet::WMSTileOptions(format = "image/png",
                                                       transparent = TRUE, opacity=1)
                              ) %>%
         
@@ -1137,7 +1181,7 @@ shiny::shinyServer(function(input, output, session){
                              opacity = 1,
                              color="white",
                              dashArray = "5",
-                             group = "country_code"
+                             group = "country"
                              )
 
         selected <- NULL
@@ -1164,7 +1208,7 @@ shiny::shinyServer(function(input, output, session){
           pal <- leaflet::colorBin(brewerPal, domain = lvlCtryData$value, na.color = "grey", bins=bins)
           
           #turn off previous layer? No point keeping it if it is hidden. Also we want to turn the current layer to transparent so that one can see through to the raster layer on hover
-          ctryPoly <- rgdal::readOGR(rnightlights::getPolyFnamePath(countries), rnightlights::getCtryShpLyrName(countries, iterAdmLevel-1)) 
+          ctryPoly <- rgdal::readOGR(getPolyFnamePath(countries), getCtryShpLyrName(countries, iterAdmLevel-1)) 
           
           ctryPoly <- sp::spTransform(ctryPoly, wgs84)
           
@@ -1254,7 +1298,7 @@ shiny::shinyServer(function(input, output, session){
         }
       map <- map %>% leaflet::addLayersControl(overlayGroups = c(ctryAdmLevels[2:lyrNum], "selected"))
       
-      if (admLevel != "country_code")
+      if (admLevel != "country")
         map <- map %>% leaflet::addLegend(position = "bottomright", 
                                  pal = pal, 
                                  values = format(ctryData$value, scientific = T),

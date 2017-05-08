@@ -32,7 +32,7 @@ print(paste0(getwd(),"/",rnightlights::pkg_options("dirNlData")))
 
 ctryCodesWithData <- substr(filenames, 1, 3)
 
-ctryCodeNames <- lapply(ctryCodesWithData, function(x) ctryCodeToNAME(x))
+ctryCodeNames <- lapply(ctryCodesWithData, function(x) ctryCodeToName(x))
 
 ctryCodesWithData <- stats::setNames(ctryCodesWithData, ctryCodeNames)
 
@@ -60,6 +60,8 @@ alignCenter <- function(el) {
                                 choices = ctryCodesWithData,
                                 multiple = TRUE
                  ),
+                 
+                 shiny::uiOutput("radioStats"),
                  
                  shiny::uiOutput(outputId = "intraCountry"),
                  
