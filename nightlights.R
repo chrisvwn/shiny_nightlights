@@ -56,7 +56,7 @@ shpTopLyrName <- "adm0"
 #projection system to use
 #can we use only one or does it depend on the shapefile loaded?
 wgs84 <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
-#ntLtsIndexUrlViirs = "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
+#ntLtsIndexUrlVIIRS = "https://www.ngdc.noaa.gov/eog/viirs/download_monthly.html"
 
 
 ######################## RNIGHTLIGHTSOPTIONS ###################################
@@ -67,7 +67,7 @@ RNIGHTLIGHTSOPTIONS <- settings::options_manager(
   
   ntLtsIndexUrlVIIRS = "https://www.ngdc.noaa.gov/eog/viirs/download_dnb_composites_iframe.html",
   
-  dirNightlights = "./rnightlights",
+  rootPath = "./rnightlights",
   
   stats = c("sum", "mean", "var"),
 
@@ -91,6 +91,9 @@ RNIGHTLIGHTSOPTIONS <- settings::options_manager(
   cropMaskMethod = "gdal",
   
   extractMethod = "gdal",
+  
+  #gdal_cachemax Speeds up gdal_rasterize calculation of stats in function ZonalPipe with more cache (advice: max 1/3 of your total RAM) see: http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
+  gdal_cachemax = 2000,
   
   #downloadMethod used options: wget, aria
   downloadMethod = "aria",
@@ -168,7 +171,6 @@ pkg_reset <- function()
 #' @examples
 #' getNlTiles()
 #'
-#' @export
 getNlTiles <- function()
 {
   #6 nightlight tiles named by top-left geo coordinate numbered from left-right & top-bottom
@@ -190,7 +192,6 @@ getNlTiles <- function()
 #' if(!existsNlTiles())
 #'   nlTiles <- getNlTiles()
 #'
-#' @export
 existsNlTiles <- function()
 {
   if (exists("nlTiles") && class(nlTiles) == "data.frame" && !is.null(nlTiles) && nrow(nlTiles) > 0)
@@ -211,7 +212,6 @@ existsNlTiles <- function()
 #' if(!existsTSpPolysDFs())
 #'   tSpPolysDFs <- createNlTilesSpPolysDF()
 #'
-#' @export
 existsTSpPolysDFs <- function()
 {
   if (exists("tSpPolysDFs") && class(tSpPolysDFs) == "SpatialPolygonsDataFrame" && !is.null(tSpPolysDFs))
@@ -231,7 +231,6 @@ existsTSpPolysDFs <- function()
 #' @examples
 #'   tSpPolysDFs <- createNlTilesSpPolysDF()
 #'
-#' @export
 createNlTilesSpPolysDF <- function()
 {
   if (!existsNlTiles())
@@ -449,7 +448,6 @@ plotCtryWithTiles <- function(idx)
 #'
 #' mapAllCtryPolyToTiles(omitCountries=c("error", "long")) will not omit countries that take long to process
 #'
-#' @export
 mapAllCtryPolyToTiles <- function(omitCountries=pkg_options("omitCountries"))
 {
   mapCtryPolyToTiles(ctryCodes="all", omitCountries)
@@ -478,7 +476,6 @@ mapAllCtryPolyToTiles <- function(omitCountries=pkg_options("omitCountries"))
 #' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons
 #' on GADM
 #'
-#' @export
 mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries=pkg_option("omitCountries"))
 {
   
@@ -556,7 +553,6 @@ mapCtryPolyToTiles <- function(ctryCodes="all", omitCountries=pkg_option("omitCo
 #' mapCtryPolyToTiles(omitCountries=c("error", "missing")) will not omit countries that do not have polygons
 #' on GADM
 #'
-#' @export
 getTilesCtryIntersect <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -617,7 +613,6 @@ getTilesCtryIntersect <- function(ctryCode)
 #' validNlMonthName("","OLS")
 #'  returns FALSE
 #'
-#' @export
 validNlTileName <- function(tileName)
 {
   if(missing(tileName))
@@ -672,7 +667,6 @@ tileName2Idx <- function(tileName)
 #' @examples
 #' tileIdx <- tileName2Idx("00N060W")
 #'
-#' @export
 tileIdx2Name <- function(tileNum)
 {
   if(missing(tileNum))
@@ -703,7 +697,6 @@ tileIdx2Name <- function(tileNum)
 #' ctryPoly <- rgdal::readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN",0))
 #' tileList <- tilesPolygonIntersect(ctryPoly)
 #'
-#' @export
 tilesPolygonIntersect <- function(shpPolygon)
 {
   if(missing(shpPolygon))
@@ -753,7 +746,6 @@ tilesPolygonIntersect <- function(shpPolygon)
 #' ctryPoly <- rgdal::readOGR(getPolyFnamePath("KEN"), getCtryShpLyrName("KEN",0))
 #' tileList <- tilesPolygonIntersect(ctryPoly)
 #'
-#' @export
 getNtLts <- function(inputYear)
 {
   #dmsp/ols data from 1992-2013
@@ -785,7 +777,6 @@ getNtLts <- function(inputYear)
 #' @examples
 #' tileUrl <- getNtLtsUrlVIIRS("2012", "04", "1")
 #'
-#' @export
 getNtLtsUrlVIIRS <- function(inYear, inMonth, tileNum)
 {
   if(missing(inYear))
@@ -866,7 +857,6 @@ getNtLtsUrlVIIRS <- function(inYear, inMonth, tileNum)
 #' @examples
 #' validNlYearNum("2014","VIIRS")
 #'
-#' @export
 validNlYearNum <- function(yearNum, nlType)
 {
   if (missing(yearNum))
@@ -924,7 +914,6 @@ validNlYearNum <- function(yearNum, nlType)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 validNlMonthNum <- function(monthNum, nlType="VIIRS")
 {
   if (missing(monthNum))
@@ -967,7 +956,6 @@ validNlMonthNum <- function(monthNum, nlType="VIIRS")
 #' validNlYearMonthVIIRS("201201")
 #'  returns FALSE #VIIRS starts in "201204"
 #'
-#' @export
 validNlYearMonthVIIRS <- function(nlYearMonth)
 {
   if (missing(nlYearMonth))
@@ -1010,7 +998,6 @@ validNlYearMonthVIIRS <- function(nlYearMonth)
 #' validNlMonthNum("2","OLS")
 #'  returns FALSE
 #'
-#' @export
 validNlTileNumVIIRS <- function(nlTileNum)
 {
   nlTileNum <- as.character(nlTileNum)
@@ -1052,7 +1039,6 @@ validNlTileNumVIIRS <- function(nlTileNum)
 #' getNtLtsZipLclNameVIIRS("2014", "01", "1")
 #'  returns "./tiles/viirs_2014_01_75N180W.tgz"
 #'
-#' @export
 getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("dirRasterVIIRS"))
 {
   nlType <- "VIIRS"
@@ -1102,7 +1088,6 @@ getNtLtsZipLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("d
 #'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
 #'
-#' @export
 getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("dirRasterVIIRS"))
 {
   nlType <- "VIIRS"
@@ -1143,7 +1128,7 @@ getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("d
   return (paste0(dir, "/viirs_", nlYear, "_", nlMonth, "_", tileIdx2Name(tileNum), ".tif"))
 }
 
-######################## getNtLtsViirs ###################################
+######################## getNtLtsVIIRS ###################################
 
 #' Download VIIRS nightlight tile
 #'
@@ -1158,11 +1143,10 @@ getNtLtsTifLclNameVIIRS <- function(nlYear, nlMonth, tileNum, dir=pkg_options("d
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
-#' if(getNtLtsViirs("2012", "05", "1"))
+#' if(getNtLtsVIIRS("2012", "05", "1"))
 #'   print("download successful")
 #'
-#' @export
-getNtLtsViirs <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("downloadMethod"))
+getNtLtsVIIRS <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("downloadMethod"))
 {
   nlType <- "VIIRS"
 
@@ -1237,7 +1221,7 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("
       {
         utils::untar(ntLtsZipLocalNameVIIRS, files = tgzAvgRadFilename, exdir = pkg_options("dirRasterVIIRS"))
 
-        file.rename(paste0(pkg_options("dirRasterVIIRS"),"/",tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
+        file.rename(file.path(pkg_options("dirRasterVIIRS"), tgzAvgRadFilename), getNtLtsTifLclNameVIIRS(nlYear, nlMonth, tileNum))
 
         file.remove(ntLtsZipLocalNameVIIRS)
       }
@@ -1251,7 +1235,7 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("
   return (rsltDnld == 0)
 }
 
-######################## masq_viirs ###################################
+######################## masqVIIRS ###################################
 
 #' extract data from one polygon in a multipolygon
 #'
@@ -1271,10 +1255,9 @@ getNtLtsViirs <- function(nlYear, nlMonth, tileNum, downloadMethod=pkg_options("
 #' ctryRaster <- raster::raster('path/to/raster.tif')
 #' 
 #' #get the sum of nightlight pixels in the first polygon in a multipolygon
-#' sumPolygon1 <- sum(masq_viirs(ctryPoly, ctryRaster, 1), na.rm=T)
+#' sumPolygon1 <- sum(masqVIIRS(ctryPoly, ctryRaster, 1), na.rm=T)
 #'
-#' @export
-masq_viirs <- function(ctryPoly, ctryRast, idx)
+masqVIIRS <- function(ctryPoly, ctryRast, idx)
 {
   if(missing)
   #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
@@ -1319,7 +1302,6 @@ masq_viirs <- function(ctryPoly, ctryRast, idx)
 #' @examples
 #' tileUrl <- getNtLtsUrlOls("1999")
 #'
-#' @export
 getNtLtsUrlOls <- function(inYear, inTile)
 {
   inYear <- as.character(inYear)
@@ -1399,7 +1381,6 @@ getNtLtsUrlOls <- function(inYear, inTile)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getNtLtsZipLclNameOLS <- function(nlYear, tileNum)
 {
   return (paste0(pkg_options("dirRasterOLS"), "/ols_", nlYear, "_", tileNum, ".tgz"))
@@ -1427,7 +1408,6 @@ getNtLtsZipLclNameOLS <- function(nlYear, tileNum)
 #'  returns "./tiles/viirs_2014_01_75N180W.tif"
 #'
 #'
-#' @export
 getNtLtsTifLclNameOLS <- function(nlYear, tileNum)
 {
   return (paste0(pkg_options("dirRasterOLS"), "/ols_", nlYear, "_", tileNum, ".tif"))
@@ -1444,12 +1424,11 @@ getNtLtsTifLclNameOLS <- function(nlYear, tileNum)
 #' @return TRUE/FALSE Whether the download was successful
 #'
 #' @examples
-#' result <- getNtLtsViirs("2012", "05", "1")
+#' result <- getNtLtsVIIRS("2012", "05", "1")
 #'
 #' if (result)
 #'   print("download successful")
 #'
-#' @export
 getNtLtsOLS <- function(nlYear, tileNum)
 {
   rsltDnld <- NA
@@ -1497,7 +1476,7 @@ getNtLtsOLS <- function(nlYear, tileNum)
       {
         utils::untar(ntLtsZipLocalName, files = tgzAvgRadFilename, exdir = pkg_options("dirRasterOLS"))
 
-        file.rename(paste0(pkg_options("dirRasterOLS"),"/",tgzAvgRadFilename), getNtLtsTifLclNameOLS(nlYear, tileNum))
+        file.rename(file.path(pkg_options("dirRasterOLS"), tgzAvgRadFilename), getNtLtsTifLclNameOLS(nlYear, tileNum))
       }
     }
     else
@@ -1509,7 +1488,7 @@ getNtLtsOLS <- function(nlYear, tileNum)
   return (rsltDnld == 0)
 }
 
-######################## masq_ols ###################################
+######################## masqOLS ###################################
 
 #' Mask
 #'
@@ -1531,13 +1510,12 @@ getNtLtsOLS <- function(nlYear, tileNum)
 #' for (i in 1:5)#length(ctryPoly@polygons))
 #' {
 #'  temp$name <- as.character(ctryPoly@data$NAME_1[i])
-#'  temp$sum <- sum(masq_ols(ctryPoly, ctryRaster, i), na.rm=T)
+#'  temp$sum <- sum(masqOLS(ctryPoly, ctryRaster, i), na.rm=T)
 #'
 #'  KenAdm1Sum <- rbind(KenAdm1Sum)
 #' }
 #'
-#' @export
-masq_ols <- function(shp, rast, i)
+masqOLS <- function(shp, rast, i)
 {
   #based on masq function from https://commercedataservice.github.io/tutorial_viirs_part1/
   #Extract one polygon based on index value i
@@ -1623,7 +1601,7 @@ ctryCodeToName <- function(ctryCode)
     stop("Invalid ctryCode")
     
   #rworldmap::isoToName can resolve 2-letter ctryCodes but we only want 3-letter ISO3 codes
-  if(stringr::str_length(ctryCode) != 3)
+  if(nchar(ctryCode) != 3)
     stop("Only 3-letter ISO3 codes allowed")
   
   return(rworldmap::isoToName(ctryCode))
@@ -1652,7 +1630,6 @@ ctryCodeToName <- function(ctryCode)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 ctryPolyLyrNames <- function (nLyrs)
 {
   if(missing(nLyrs))
@@ -1694,7 +1671,6 @@ ctryPolyLyrNames <- function (nLyrs)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
 {
   
@@ -1731,7 +1707,6 @@ ctryPolyAdmColNames <- function (ctryPolyAdmLevels, nLyrs)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 processNLCountryOls <- function(cntryCode, nlYear)
 {
   message("processNLCountryOLS: ")
@@ -1920,7 +1895,6 @@ processNLCountryOls <- function(cntryCode, nlYear)
 #' initCtryNlData <- createCtryNlDataDF("KEN")
 #'  #returns a data frame
 #'
-#' @export
 createCtryNlDataDF <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -1991,7 +1965,7 @@ createCtryNlDataDF <- function(ctryCode)
   return(ctryNlDataDF)
 }
 
-######################## processNLCountriesViirs : TO DELETE ###################################
+######################## processNLCountriesVIIRS : TO DELETE ###################################
 
 #' Check if a month number is valid for a given nightlight type
 #'
@@ -2005,10 +1979,9 @@ createCtryNlDataDF <- function(ctryCode)
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' processNLCountriesViirs(ctryCodes, nlYearMonth)
+#' processNLCountriesVIIRS(ctryCodes, nlYearMonth)
 #'
-#' @export
-processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
+processNLCountriesVIIRS <- function(ctryCodes, nlYearMonth)
 {
   if(missing(ctryCodes))
     stop("Missing required parameter ctryCode")
@@ -2041,7 +2014,6 @@ processNLCountriesViirs <- function(ctryCodes, nlYearMonth)
 #' ctryShpLyrName2Num("KEN_adm1")
 #'   #returns 1
 #'
-#' @export
 ctryShpLyrName2Num <- function(layerName)
 {
   if(missing(layerName))
@@ -2453,7 +2425,6 @@ validCtryNlDataDF <- function(ctryNlDataDF)
 #' @examples
 #' getCtryRasterOutputFname("KEN","201412")
 #'
-#' @export
 getCtryRasterOutputFname <- function(ctryCode, nlYearMonth)
 {
   if(missing(ctryCode))
@@ -2468,7 +2439,7 @@ getCtryRasterOutputFname <- function(ctryCode, nlYearMonth)
   if(!validNlYearMonthVIIRS(nlYearMonth))
     stop("Invalid nlYearMonth")
   
-  return (paste0(pkg_options("dirRasterOutput"), "/",ctryCode, "_", nlYearMonth,".tif"))
+  return (file.path(pkg_options("dirRasterOutput"), paste0(ctryCode, "_", nlYearMonth,".tif")))
 }
 
 ######################## getCtryPolyUrl ###################################
@@ -2556,37 +2527,95 @@ getCtryNlDataFnamePath <- function(ctryCode)
   if(!validCtryCode(ctryCode))
     stop("Invalid ctryCode")
   
-  return (paste0(pkg_options("dirNlData"), "/", getCtryNlDataFname(ctryCode)))
+  return (file.path(pkg_options("dirNlData"), getCtryNlDataFname(ctryCode)))
 }
 
 ######################## getCtryNlData ###################################
 
 #' Returns VIIRS nightlight data for the given ctryCode in the given year months
 #'
-#' Returns VIIRS nightlight data for the given ctryCode in the given year months
+#' Returns VIIRS nightlight data for the given ctryCode and stats in the given 
+#'     year months. Note that getCtryNldata only processes one ctryCode at a time.
+#'     \code{ignoreMissing} plays a significant role here. It can take 3 values:
+#'     \itemize
+#'     {
+#'         \item NULL (default) only return data if found for all nlYearMonths
+#'            and all stats provided otherwise return NULL
+#'         \item TRUE return any partial data that is found for the provided 
+#'            nlYearMonths and stats. Ignore any missing data
+#'         \item FALSE return all data that is found and call \code{processNtLts}
+#'            to download and process any missing nlYearMonths and stats
+#'     }
+#'    
+#'    Farther, if \code{nlYearMonths} is missing, it is assigned values based on
+#'    the value of ignoreMissing. If ignoreMissing is FALSE, nlYearMonths is 
+#'    assigned all existing nlYearMonths to date. This is the equivalent of 
+#'    retrieving all nightlight data for the given country and stats. If 
+#'    ignoreMissing is TRUE or NULL then the existing data is returned.
 #'
-#' @param ctryCode the ISO3 code of the country
+#' @param ctryCode the ISO3 code of the country. Only 1 country can be processed at a time
 #'
 #' @param nlYearMonths a vector of yearMonths
+#' 
+#' @param stats a vector of stats. if not supplied defaults to all stats as listed in pkg_options("stats")
+#' 
+#' @param nlType the nightlight type i.e. "OLS" or "VIIRS" (default)
+#' 
+#' @param ignoreMissing controls how the function behaves if any data is not
+#'     found in the data file
+#'     \itemize
+#'     {
+#'         \item NULL (default) only return data if found for all nlYearMonths
+#'            and all stats provided otherwise return NULL
+#'         \item TRUE return any partial data that is found for the provided 
+#'            nlYearMonths and stats. Ignore any missing data
+#'         \item FALSE return all data that is found and call \code{processNtLts}
+#'            to download and process any missing nlYearMonths and stats
+#'     }
 #'
 #' @return dataframe of data for one country in one or multiple yearmonths
 #'
 #' @examples
+#' #missing stats implies all stats
+#' 
+#' getCtryNlData("KEN", ignoreMissing=NULL)
+#'  #returns all existing data i.e. all nlYearMonths and all stats for KEN
 #'
-#' getCtryNlData("KEN", "201204")
-#'  #returns dataframe
+#' getCtryNlData("KEN", ignoreMissing=TRUE)
+#'  #same as ignoreMissing=NULL. Returns all existing data i.e. all nlYearMonths
+#'  #and all stats for KEN
+#'  
+#' getCtryNlData("KEN", ignoreMissing=FALSE)
+#'  #for any missing data between 201204 to present download and process the
+#'  #data then return all data
+#'  
+#' getCtryNlData("KEN", nlYearMonths=c("existingNlYearMonth", "missingNlYearMonth"),
+#'     stats=c("existingStat", "missingStat"), ignoreMissing=NULL)
+#'  #Returns NULL
+#'  #(ignoreMissing==NULL returns all data if exists or if any is missing returns NULL)
 #'
+#' getCtryNlData("KEN", nlYearMonths=c("existingNlYearMonth", "missingNlYearMonth),
+#'     stats=c("existingStat", "missingStat"), ignoreMissing=TRUE)
+#'  #Returns existingStat for existingNlYearMonth
+#'  #(ignoreMissing==TRUE returns only existing data)
+#'  
+#' getCtryNlData("KEN", nlYearMonths=c("existingNlYearMonth", "missingNlYearMonth),
+#' stats=c("existingStat", "missingStat"), ignoreMissing=FALSE)
+#'  #Runs processNtLts for missingStat in missingNlYearMonth and returns
+#'  #existingStat and missingStat for both existingNlYearMonth and missingNlYearMonth
+#'  #(ignoreMissing==FALSE must return all data: forces processing of any missing)
+#'  
 #' @export
 getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), nlType, ignoreMissing=NULL, source="local")
 {
   if(missing(ctryCode))
     stop("Missing required ctryCode")
 
-  if(missing(nlYearMonths))
+  if(missing(nlYearMonths) && (!missing(ignoreMissing) && !ignoreMissing))
     nlYearMonths <- getAllNlYears()
   
-  if(missing(ignoreMissing))
-    ignoreMissing = TRUE
+  #if(missing(ignoreMissing))
+  #  ignoreMissing = TRUE
   
   if(length(ctryCode) > 1)
     stop("getCtryNlData can only process 1 ctryCode")
@@ -2630,9 +2659,11 @@ getCtryNlData <- function(ctryCode, nlYearMonths, stats=pkg_options("stats"), nl
   }
   else
   {
-    #return the whole data frame
+    #else if missing nlYearMonths
+    #if !missing(stats) return only given stats
+    #else return the whole data frame
     if(existsCtryNlDataFile(ctryCode))
-      ctryData <- as.data.frame(fread(getCtryNlDataFnamePath(ctryCode)))
+      ctryData <- as.data.frame(data.table::fread(getCtryNlDataFnamePath(ctryCode)))
     else
     {
       message("Data for ", ctryCode, " does not exist. Set IgnoreMissing=FALSE to download and process")
@@ -2832,7 +2863,6 @@ allValid <- function(testData, testFun)
 #' if(existsCtryNlDataFile(ctryCode))
 #'  message("Data file for ", ctryCode, " found")
 #'
-#' @export
 existsCtryNlDataFile <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -2845,7 +2875,7 @@ existsCtryNlDataFile <- function(ctryCode)
   return(file.exists(getCtryNlDataFnamePath(ctryCode)))
 }
 
-######################## polyFnamePathExists ###################################
+######################## existsPolyFnamePath ###################################
 
 #' Check if the decompressed country polygon has been downloaded and stored in the polygon folder
 #'
@@ -2856,17 +2886,16 @@ existsCtryNlDataFile <- function(ctryCode)
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' polyFnamePathExists("KEN")
+#' existsPolyFnamePath("KEN")
 #'  TRUE/FALSE
 #'
-#' @export
-polyFnamePathExists <- function(ctryCode)
+existsPolyFnamePath <- function(ctryCode)
 {
   #for polygons look for shapefile dir
   return(dir.exists(getPolyFnamePath(ctryCode)))
 }
 
-######################## polyFnameZipExists ###################################
+######################## existsPolyFnameZip ###################################
 
 #' Check if the compressed country polygon has been downloaded and stored in the polygon folder
 #'
@@ -2877,11 +2906,10 @@ polyFnamePathExists <- function(ctryCode)
 #' @return TRUE/FALSE
 #'
 #' @examples
-#' polyFnameZipExists("KEN")
-#'  TRUE/FALSE
+#' existsPolyFnameZip("KEN")
+#'  #returns TRUE/FALSE
 #'
-#' @export
-polyFnameZipExists <- function(ctryCode)
+existsPolyFnameZip <- function(ctryCode)
 {
   if(missing(ctryCode))
     stop("Missing required parameter ctryCode")
@@ -2907,8 +2935,8 @@ polyFnameZipExists <- function(ctryCode)
 #'
 #' @examples
 #' lyrName <- getCtryShpLyrName("KEN","0")) #top layer name
-#'   #return "KEN_adm0"
-#' @export
+#'   #returns "KEN_adm0"
+#'   
 getCtryShpLyrName <- function(ctryCode, lyrNum)
 {
   if(missing(ctryCode))
@@ -2939,7 +2967,6 @@ getCtryShpLyrName <- function(ctryCode, lyrNum)
 #' validNlMonthNum("01","VIIRS")
 #'  returns TRUE
 #'
-#' @export
 getCtryShpLowestLyrName <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -2982,7 +3009,6 @@ getCtryShpLowestLyrName <- function(ctryCode)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getCtryPolyAdmLevelNames <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3044,7 +3070,6 @@ getCtryPolyAdmLevelNames <- function(ctryCode)
 #' validNlCtryCode("UAE")
 #'  #returns FALSE. "United Arab Emirates" ISO3 code = "ARE"
 #'
-#' @export
 validCtryCode <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3083,7 +3108,6 @@ validCtryCode <- function(ctryCode)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 dnldCtryPoly <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3097,9 +3121,9 @@ dnldCtryPoly <- function(ctryCode)
   result <- NULL
 
   #if the path doesn't exist
-  if (!polyFnamePathExists(ctryCode))
+  if (!existsPolyFnamePath(ctryCode))
   {
-    if (!polyFnameZipExists(ctryCode))
+    if (!existsPolyFnameZip(ctryCode))
     {
       if(download.file(url = getCtryPolyUrl(ctryCode), destfile = getPolyFnameZip(ctryCode), method = "wget", mode = "wb", extra = "-c") == 0)
       {
@@ -3143,7 +3167,6 @@ dnldCtryPoly <- function(ctryCode)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getAllNlYears <- function(nlType = "VIIRS")
 {
   if (class(nlType) != "character" || is.null(nlType) || is.na(nlType) || nlType =="" || length(grep("[^[:alpha:]]", nlType) > 0))
@@ -3153,12 +3176,12 @@ getAllNlYears <- function(nlType = "VIIRS")
     return (1992:2013)
   else if (nlType == "VIIRS")
   {
-    yrs <- 2012:year(now())
+    yrs <- 2012:lubridate::year(lubridate::now())
     mths <- c(paste("0",1:9, sep= ""),10:12)
 
-    currYrMth <- paste0(lubridate::year(now()), ifelse(lubridate::month(now())<10, paste("0", lubridate::month(now()), sep=""), lubridate::month(now())))
+    currYrMth <- paste0(lubridate::year(lubridate::now()), ifelse(lubridate::month(lubridate::now())<10, paste("0", lubridate::month(lubridate::now()), sep=""), lubridate::month(lubridate::now())))
 
-    nlYrMths <- utils::unlist(lapply(yrs, FUN = function(x) paste(x,mths,sep="")))
+    nlYrMths <- unlist(lapply(yrs, FUN = function(x) paste(x,mths,sep="")))
 
     nlYrMths <- nlYrMths[nlYrMths >= "201204" & nlYrMths <= currYrMth]
 
@@ -3191,7 +3214,6 @@ getAllNlYears <- function(nlType = "VIIRS")
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getAllNlCtryCodes <- function(omit="none")
 {
   #omit is a vector and can contain "long", "missing" or "error"
@@ -3261,7 +3283,6 @@ getAllNlCtryCodes <- function(omit="none")
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getNlType <- function(nlYear)
 {
   if(missing(nlYear))
@@ -3295,7 +3316,6 @@ getNlType <- function(nlYear)
 #' getPolyFnameZip("KEN")
 #'  returns "path/to/"
 #'
-#' @export
 getPolyFname <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3328,7 +3348,6 @@ getPolyFname <- function(ctryCode)
 #' getPolyFnameZip("KEN")
 #'  returns "path/to/"
 #'
-#' @export
 getPolyFnamePath <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3339,7 +3358,7 @@ getPolyFnamePath <- function(ctryCode)
   
   #check for the shapefile directory created with
   #format of shapefiles is CTR_adm_shp e.g. KEN_adm_shp
-  polyFnamePath <- paste0(pkg_options("dirPolygon"), "/", getPolyFname(ctryCode))
+  polyFnamePath <- file.path(pkg_options("dirPolygon"), getPolyFname(ctryCode))
 
   return (polyFnamePath)
 }
@@ -3358,7 +3377,6 @@ getPolyFnamePath <- function(ctryCode)
 #' getPolyFnameZip("KEN")
 #'  returns "path/to/"
 #'
-#' @export
 getPolyFnameZip <- function(ctryCode)
 {
   if(missing(ctryCode))
@@ -3396,7 +3414,6 @@ getPolyFnameZip <- function(ctryCode)
 #' validNlMonthNum("01","OLS")
 #'  returns FALSE
 #'
-#' @export
 getNlYearMonthTilesOLS <- function(nlYearMonth, tileList)
 {
   success <- TRUE
@@ -3437,7 +3454,6 @@ getNlYearMonthTilesOLS <- function(nlYearMonth, tileList)
 #' 
 #' returns TRUE if the download was successful
 #'
-#' @export
 getNlYearMonthTilesVIIRS <- function(nlYearMonth, tileList)
 {
   if(missing(nlYearMonth))
@@ -3466,7 +3482,7 @@ getNlYearMonthTilesVIIRS <- function(nlYearMonth, tileList)
     print(paste0(nlYear, nlMonth, nlTile))
 
     #download tile
-    success <- success && getNtLtsViirs(nlYear, nlMonth, nlTile)
+    success <- success && getNtLtsVIIRS(nlYear, nlMonth, nlTile)
   }
 
   return (success)
@@ -3492,7 +3508,6 @@ getNlYearMonthTilesVIIRS <- function(nlYearMonth, tileList)
 #' getAllNlYearMonthsTiles(c("201201", "201202", "201205"), tileName2Idx(getCtryCodeTileList("KEN")))
 #' #returns TRUE if ALL downloads were successful
 #'
-#' @export
 getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
 {
   if(missing(nlYearMonths))
@@ -3530,7 +3545,6 @@ getAllNlYearMonthsTiles <- function(nlYearMonths, tileList)
 #' if(!existsCtryCodeTiles())
 #'   mapCtryPolyToTiles()
 #'
-#' @export
 existsCtryCodeTiles <- function()
 {
   return (exists("ctryCodeTiles") && class(ctryCodeTiles)=="data.frame" && !is.null(ctryCodeTiles))
@@ -3559,7 +3573,6 @@ existsCtryCodeTiles <- function()
 #' 
 #' getCtryCodeTileList(ctryCodes="all", omitCountries="long")
 #'
-#' @export
 getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
 {
   if(missing(ctryCodes))
@@ -3591,7 +3604,6 @@ getCtryCodeTileList <- function(ctryCodes, omitCountries="none")
 #' @examples
 #' existsCtryNlDataVIIRS("KEN", "201204")
 #'
-#' @export
 existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth, stat)
 {
   if(missing(ctryCode))
@@ -3612,8 +3624,7 @@ existsCtryNlDataVIIRS <- function(ctryCode, nlYearMonth, stat)
   # 
   # if(length(stat) > 1)
   #   stop("Please supply only 1 stat to check")
-  
-  
+
   if(!validCtryCode(ctryCode))
     stop("Invalid ctryCode")
   
@@ -3881,7 +3892,6 @@ processNtLts <- function (ctryCodes=getAllNlCtryCodes("all"), nlYearMonths=getAl
 #'
 #'  initNtLts()
 #'
-#' @export
 initNtLts <- function(omitCountries="none")
 {
   #the constructor
@@ -3917,7 +3927,7 @@ initNtLts <- function(omitCountries="none")
   tSpPolysDFs <<- createNlTilesSpPolysDF()
 }
 
-######################## cleanup ###################################
+######################## cleanupNtLts ###################################
 
 #' Clean up the environment after processing (Not yet implemented)
 #'
@@ -3929,15 +3939,14 @@ initNtLts <- function(omitCountries="none")
 #'  cleanup()
 #'
 #' @export
-cleanup <- function()
+cleanupNtLts <- function()
 {
+  #remove any global vars we might have used
+  suppressWarnings(rm(map, shpTopLyrName, wgs84, nlTiles, tSpPolysDFs))
+  
   #the destructor
 
   #del temp files
-
-  #ensure files have been written that need to
-
-  #
 }
 
 ######################## myZonal ###################################
@@ -4051,11 +4060,6 @@ myZonal <- function (x, z, stats, digits = 0, na.rm = TRUE, ...)
 #'
 #' @return TRUE/FALSE
 #'
-#' @examples
-#'
-#'
-#'
-#' @export
 ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, path.out.shp, zone.attribute, stats)
 {
   #Source: http://www.guru-gis.net/efficient-zonal-statistics-using-r-and-gdal/
@@ -4113,7 +4117,7 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
     #Gdal_rasterize
     message("Creating zonal raster")
     command<-'gdal_rasterize'
-    command<-paste(command, "--config GDAL_CACHEMAX 2000") #Speed-up with more cache (avice: max 1/3 of your total RAM)
+    command<-paste(command, paste0("--config GDAL_CACHEMAX ", pkg_options("gdal_cachemax"))) #Speed-up with more cache (avice: max 1/3 of your total RAM)
     command<-paste(command, "-l", lowestLyrName)
     #command<-paste(command, "-where", paste0(lowestIDCol, "=", i))
     command<-paste(command, "-a", zone.attribute) #Identifies an attribute field on the features to be used for a burn in value. The value will be burned into all output bands.
@@ -4174,7 +4178,6 @@ ZonalPipe <- function (ctryCode, ctryPoly, path.in.shp, path.in.r, path.out.r, p
 #' validNlMonthNum("01","VIIRS")
 #'  returns TRUE
 #'
-#' @export
 fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
 {
   if(missing(ctryCode))
@@ -4240,12 +4243,14 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
 
 ######################## fnSumAvgRadRast ###################################
 
-#' Calculate the sum of the radiance of the pixels in a nightlight raster that fall within a polygon
+#' Calculate statistics on a nightlight raster that fall within a polygon
 #'
-#' Calculate the sum of the radiance of the pixels in a nightlight raster that fall within a polygon and its
-#'     subpolygons. Given a country polygon with subpolygons representing lower admin levels, it will
-#'     crop and mask the raster to each subpolygon and calculate the total radiance for the polygon and
-#'     return a vector of total radiances that matches the subpolygons
+#' Calculate the sum of the radiance of the pixels in a nightlight raster
+#'     that fall within a polygon and its subpolygons using the \code{raster} 
+#'     package. Given a country polygon with subpolygons representing lower 
+#'     admin levels, it will crop and mask the raster to each subpolygon and 
+#'     calculate the total radiance for the polygon and return a vector of total
+#'     radiances that matches the subpolygons
 #'
 #' @param ctryPoly The polygon of the admin level/region of interest. In general is a country polygon
 #'     with sub-regions usually the lowest known admin level as given by the GADM polygons.
@@ -4256,14 +4261,15 @@ fnSumAvgRadGdal <- function(ctryCode, ctryPoly, nlYearMonth, fnStats=stats)
 #' @return Integer Sum of radiances of all pixels in a raster that fall within a polygon region
 #'
 #' @examples
-#' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLowestLyrName("KEN")) #read the Kenya polygon downloaded from GADM
-#'     and load the lowest admin level (ward)
-#' ctryRastCropped <- getCtryRasterOutputFname("KEN","201401") # the VIIRS nightlight raster cropped
-#'     earlier to the country outline
-#' sumAvgRadRast <- fnSumAvgRadRast(ctryPoly, ctryRastCropped) #calculate the sum of radiances for the wards
-#'     in Kenya
-#'
-#' @export
+#' #read the Kenya polygon downloaded from GADM and load the lowest admin level (ward)
+#' ctryPoly <- readOGR(getPolyFnamePath("KEN"), getCtryShpLowestLyrName("KEN"))
+#'     
+#' # the VIIRS nightlight raster cropped earlier to the country outline
+#' ctryRastCropped <- getCtryRasterOutputFname("KEN","201401")
+#' 
+#' #calculate the sum of radiances for the wards in Kenya
+#' sumAvgRadRast <- fnSumAvgRadRast(ctryPoly, ctryRastCropped)
+#' 
 fnSumAvgRadRast <- function(ctryPoly, ctryRastCropped, stats)
 {
   if(missing(ctryPoly))
@@ -4287,7 +4293,7 @@ fnSumAvgRadRast <- function(ctryPoly, ctryRastCropped, stats)
   {
     message("Extracting data from polygon " , i, " ", base::date())
 
-    dat <- masq_viirs(ctryPoly, ctryRastCropped, i)
+    dat <- masqVIIRS(ctryPoly, ctryRastCropped, i)
 
     message("Calculating the NL stats of polygon ", i, " ", base::date())
 
@@ -4608,83 +4614,60 @@ myquantile <- function (x)
 #' runApplication()
 #'
 #' @export
-runApplication <- function()
+exploreData <- function()
 {
   appDir <- system.file("application", package = "rnightlights")
   if (appDir == "")
   {
-    stop("Could not find application directory. Try re-installing `rnightlights`.", call. = FALSE)
+    stop("Could not find application directory. Try re-installing the `rnightlights` package.", call. = FALSE)
   }
 
   shiny::runApp(appDir, display.mode = "normal")
 }
 
-######################## setupCacheRootPath ###################################
+######################## setupRootPath ###################################
 
-#' @RdocDefault setupCacheRootPath
+#' Interactively offers the user to set up the default root path
 #'
-#' @title "Interactively offers the user to set up the default root path"
+#' Interactively offers the user to set up the default root path
 #'
-#' \description{
-#'  @get "title".
-#' }
-#'
-#' @synopsis
-#'
-#' \arguments{
-#'   \item{defaultPath}{Default root path to set.}
-#'   \item{...}{Not used.}
-#' }
-#'
-#' \value{
-#'   Returns (invisibly) the root path,
-#'   or @NULL if running a non-interactive session.
-#' }
-#'
-#' \details{
-#'   If the cache root path is already set, it is used and nothing is done.
-#'   If the "default" root path (\code{defaultPath}) exists, it is used,
-#'   otherwise, if running interactively, the user is asked to approve
-#'   the usage (and creation) of the default root path.
-#'   In all other cases, the cache root path is set to a session-specific
-#'   temporary directory.
-#' }
-#'
-#' @author
-#'
-#' @seealso{
-#'  Internally, @see "setCacheRootPath" is used to set the cache root path.
-#'  The @see "base::interactive" function is used to test whether \R is
-#'  running interactively or not.
-#' }
-#'
-#' @keyword "programming"
-#' @keyword "IO"
-#' @keyword "internal"
+#' @param defaultPath Default root path to set
 #' 
+#' @param ... Not used.
+#'
+#' @return character string Returns (invisibly) the root path,
+#'     or @NULL if running a non-interactive session.
+#' 
+#' @seealso Internally, @see "setRootPath" is used to set the root path.
+#'     The \code{"base::interactive"} function is used to test whether 
+#'     \code{R} is running interactively or not.
+#'
 #' @export
-setupCacheRootPath <- function(defaultPath=dirNightlights, ...) 
+setupRootPath <- function(defaultRootPath="~/.Rnightlights", ...)
 {
-  rootPath <- getCacheRootPath(NULL);
+  rootPath <- getRootPath(NULL);
   
   # If already set, nothing to do.
   if (!is.null(rootPath)) {
     return(invisible(rootPath));
   }
   
-  # Use a temporary root path...
-  rootPath <- file.path(tempdir(), ".Rcache");
+  # Use a root path in the HOME_DIR
+  rootPath <- file.path("~/.Rnightlights");
   
   # unless the default directory exists, ...
   if (isDirectory(defaultPath)) {
     rootPath <- defaultPath;
   } else if (interactive()) {
-    # or we cn ask the user to confirm the default path...
-    prompt <- "The R.cache package needs to create a directory that will hold cache files.";
-    if (identical(defaultPath, "~/.Rcache/")) {
-      prompt <- c(prompt, "It is convenient to use one in the user's home directory, because it remains also after restarting R.");
+    # if the default dir does not exist we ask the user to confirm the default path...
+    prompt <- "The Rnightlights package needs to create a directory that will hold package files.";
+    
+    if (identical(defaultPath, "~/.Rnightlights/"))
+    {
+      prompt <- c(prompt, "It is convenient to use one in the user's home directory, because it remains also after restarting R.")
     }
-    prompt <- c(prompt, sprintf("Do you wish to create the '%s' directory? If not, a temporary directory (%s) that is specific to this R session will be used.", defaultPath, rootPath));
+    
+    prompt <- c(prompt, sprintf("Do you wish to create the '%s' directory? If not, a temporary directory (%s) that is specific to this R session will be used.", defaultPath, rootPath))
     prompt <- paste(prompt, collapse=" ");
     tryCatch({
       ans <- .textPrompt(prompt=prompt, options=c("Y"="yes", "n"="no"));
@@ -4692,8 +4675,83 @@ setupCacheRootPath <- function(defaultPath=dirNightlights, ...)
     }, condition=function(ex) {});
   }
   
-  setCacheRootPath(rootPath);
-  rootPath <- getCacheRootPath();
+  setRootPath(rootPath);
+  rootPath <- getRootPath();
   
   invisible(rootPath);
 } # setupCacheRootPath()
+
+######################## setRootPath ###################################
+#' Sets the root path to the package data directory
+#'
+#' By default, this function will set the root path to \code{~/.Rnightlights/}.
+#'
+#' @params
+#'   path The path
+#'   ... Not used
+#'
+#' @return
+#'   Returns (invisibly) the old root path.
+#'   
+#' @examples
+#'   
+setRootPath <- function(path=pkg_options("rootPath"), ...)
+{
+  path <- as.character(path);
+  
+  if (!isDirectory(path)) {
+    mkdirs(path);
+    if (!isDirectory(path)) {
+      throw("Could not create root directory: ", path);
+    }
+  }
+  
+  # Add a README.txt file, if missing.
+  .addREADME(to=path);
+  
+  ovalue <- options("Rnightlights::rootPath"=path);
+  
+  invisible(ovalue);
+} # setCacheRootPath()
+
+######################## getRootPath ###################################
+
+#' Gets the root path to the file directory"
+#'
+#' Gets the root path to the file directory"
+#'
+#' @param defaultPath The default path, if no user-specified directory
+#'     has been given.
+#'     
+#' @param ... Not used.
+#'
+#' @return Returns the path as a @character string.
+#'
+#' @examples
+#'   print(getRootPath())
+#'
+#' @seealso Too set the directory where package data files are stored,
+#'     see @see "setRootPath".
+getRootPath <- function(defaultPath="~/.Rnightlights", ...)
+{
+  # Check for option settings
+  path <- getOption("Rnightlights::rootPath");
+  
+  # Otherwise, use argument 'path'.
+  if (is.null(path)) {
+    path <- defaultPath;
+  }
+  
+  path;
+}
+
+.addREADME <- function(to=getRootPath(), ...)
+{
+  # Add a README.txt to rootPath (expaining what the directory is)
+  filename <- "README.txt";
+  pathnameD <- file.path(to, filename);
+  if (!isFile(pathnameD)) {
+    pathnameS <- system.file("_Rnightlights", filename, package="Rnightlights");
+    file.copy(pathnameS, pathnameD);
+  }
+} # .addREADME()
