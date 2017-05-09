@@ -24,11 +24,32 @@
 #suppressMessages(source("nightlights.R"))
 
 #source("nightlights.R")
+
+if (!requireNamespace("shiny", quietly = TRUE))
+{
+  stop("Pkg shiny needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("shinydashboard", quietly = TRUE))
+{
+  stop("Pkg shinydashboard needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("leaflet", quietly = TRUE))
+{
+  stop("Pkg leaflet needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("plotly", quietly = TRUE))
+{
+  stop("Pkg plotly needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
 library(rnightlights)
 
-filenames <- list.files(paste0(getwd(),"/",rnightlights::pkg_options("dirNlData")))
+filenames <- list.files(file.path(rnightlights::pkg_options("rootPath"), rnightlights::pkg_options("dirNlData")))
 
-print(paste0(getwd(),"/",rnightlights::pkg_options("dirNlData")))
+print(file.path(rnightlights::pkg_options("rootPath"), rnightlights::pkg_options("dirNlData")))
 
 ctryCodesWithData <- substr(filenames, 1, 3)
 

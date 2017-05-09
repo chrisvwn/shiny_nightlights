@@ -13,60 +13,62 @@
 # 
 # library(shiny)
 # library(ggplot2)
- library(plotly)
+# library(plotly)
 # library(leaflet)
 # library(reshape)
 # library(rgdal)
 # library(RColorBrewer)
 # library(ggdendro)
 # library(dendextend)
-#library(rnightlights)
+# library(rnightlights)
 # library(aws.s3)
-# if (!requireNamespace("shiny", quietly = TRUE))
-# {
-#   stop("Pkg shiny needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("dendextend", quietly = TRUE))
-# {
-#   stop("Pkg dendextend needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("ggdendro", quietly = TRUE))
-# {
-#   stop("Pkg ggdendro needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("leaflet", quietly = TRUE))
-# {
-#   stop("Pkg leaflet needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("plotly", quietly = TRUE))
-# {
-#   stop("Pkg plotly needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("RColorBrewer", quietly = TRUE))
-# {
-#   stop("Pkg RColorBrewer needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("reshape", quietly = TRUE))
-# {
-#   stop("Pkg reshape needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
-# 
-# if (!requireNamespace("rgdal", quietly = TRUE))
-# {
-#   stop("Pkg rgdal needed for this function to work. Please install missing packages.", call. = FALSE)
-# }
+
+
+if (!requireNamespace("shiny", quietly = TRUE))
+{
+  stop("Pkg shiny needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("dendextend", quietly = TRUE))
+{
+  stop("Pkg dendextend needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("ggdendro", quietly = TRUE))
+{
+  stop("Pkg ggdendro needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("leaflet", quietly = TRUE))
+{
+  stop("Pkg leaflet needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("plotly", quietly = TRUE))
+{
+  stop("Pkg plotly needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("RColorBrewer", quietly = TRUE))
+{
+  stop("Pkg RColorBrewer needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("reshape", quietly = TRUE))
+{
+  stop("Pkg reshape needed for this function to work. Please install missing packages.", call. = FALSE)
+}
+
+if (!requireNamespace("rgdal", quietly = TRUE))
+{
+  stop("Pkg rgdal needed for this function to work. Please install missing packages.", call. = FALSE)
+}
 
 options(shiny.trace=F)
 
 shiny::shinyServer(function(input, output, session){
+  
   #Since renderUI does not like intraCountry returning NULL we init with an empty renderUI, set suspendWhenHidden = FALSE to force it to recheck intraCountry even if null
-
   output$intraCountry <- shiny::renderUI({})
   shiny::outputOptions(output, "intraCountry", suspendWhenHidden = FALSE)
   
